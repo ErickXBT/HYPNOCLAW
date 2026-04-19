@@ -146,8 +146,17 @@ class TradingEngine {
   }
 }
 
-// Global instance
-window.tradingEngine = new TradingEngine();
-
-// Export
+// Export class
 window.TradingEngine = TradingEngine;
+
+// Defer instantiation until all inline scripts have run (DOMContentLoaded)
+function initTradingEngine() {
+  window.tradingEngine = new TradingEngine();
+  window.globalTradingEngine = window.tradingEngine;
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initTradingEngine);
+} else {
+  initTradingEngine();
+}
