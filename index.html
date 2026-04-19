@@ -992,11 +992,108 @@ footer { position: relative; z-index: 1; border-top: 1px solid rgba(255,26,26,0.
   .btn-small:hover { background: rgba(255,26,26,0.12); border-color: rgba(255,26,26,0.4); }
   .empty-state { color: var(--muted); padding: 32px 0; text-align: center; }
 }
+
+/* ══════════════════════════════════════════
+   MOBILE HAMBURGER & MENU
+══════════════════════════════════════════ */
+.hamburger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  z-index: 600;
+  flex-shrink: 0;
+}
+.hamburger span {
+  display: block;
+  width: 22px;
+  height: 2px;
+  background: var(--text);
+  transition: all 0.3s ease;
+  transform-origin: center;
+}
+.hamburger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.hamburger.open span:nth-child(2) { opacity: 0; width: 0; }
+.hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+.mob-menu {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(7,7,7,0.98);
+  backdrop-filter: blur(12px);
+  z-index: 490;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 80px 32px 40px;
+}
+.mob-menu.open { display: flex; }
+.mob-menu-link {
+  color: var(--muted);
+  font-family: 'Space Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  text-decoration: none;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(255,26,26,0.08);
+  cursor: pointer;
+  padding: 16px 0;
+  width: 100%;
+  max-width: 280px;
+  text-align: center;
+  transition: color 0.2s;
+}
+.mob-menu-link:active, .mob-menu-link:hover { color: var(--red); }
+.mob-menu-cta {
+  margin-top: 28px;
+  padding: 14px 40px;
+  background: var(--red);
+  color: #fff;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.mob-menu-cta:hover { opacity: 0.85; }
+
+@media (max-width: 960px) {
+  .hamburger { display: flex; }
+  .nav-cta { display: none; }
+  .net-badge { display: none; }
+}
+@media (max-width: 640px) {
+  .nav-wallet-btn { font-size: 0; padding: 9px 12px; }
+  .nav-wallet-btn .wdot { margin: 0; }
+}
 </style>
 </head>
 <body>
 
 <div class="grain"></div>
+
+<!-- MOBILE MENU OVERLAY -->
+<div class="mob-menu" id="mobMenu">
+  <button class="mob-menu-link" onclick="mobNav('')">Home</button>
+  <button class="mob-menu-link" onclick="mobNav('launch')">Launch App</button>
+  <button class="mob-menu-link" onclick="mobNav('trending')">Trending</button>
+  <button class="mob-menu-link" onclick="mobNav('tokens')">Tokens</button>
+  <button class="mob-menu-link" onclick="homeScrollTo('products');closeMobMenu()">Products</button>
+  <button class="mob-menu-link" onclick="homeScrollTo('tokenomics');closeMobMenu()">Token</button>
+  <button class="mob-menu-link" onclick="homeScrollTo('roadmap');closeMobMenu()">Roadmap</button>
+  <button class="mob-menu-cta" onclick="mobNav('launch')">Launch Token →</button>
+</div>
+
 <canvas id="particles"></canvas>
 <div class="toast-ct" id="toastCt"></div>
 
@@ -2191,6 +2288,63 @@ updatePrev();
 // Initialize new systems
 window.antiBotSystem = new AntiBotSystem();
 window.feeSystem = new FeeSystem('creator-wallet-placeholder', PLATFORM_WALLET.toString()); // Creator wallet would be set per token
+</script>
+
+<!-- MOBILE MENU SCRIPT -->
+<script>
+(function() {
+  // Inject hamburger button into every <nav>
+  function buildHamburgers() {
+    document.querySelectorAll('nav').forEach(function(nav) {
+      var ham = document.createElement('button');
+      ham.className = 'hamburger';
+      ham.setAttribute('aria-label', 'Menu');
+      ham.innerHTML = '<span></span><span></span><span></span>';
+      ham.addEventListener('click', toggleMobMenu);
+      nav.appendChild(ham);
+    });
+  }
+
+  function toggleMobMenu() {
+    var menu = document.getElementById('mobMenu');
+    var isOpen = menu.classList.contains('open');
+    if (isOpen) {
+      closeMobMenu();
+    } else {
+      menu.classList.add('open');
+      document.querySelectorAll('.hamburger').forEach(function(h) { h.classList.add('open'); });
+      document.body.style.overflow = 'hidden';
+    }
+  }
+
+  function closeMobMenu() {
+    document.getElementById('mobMenu').classList.remove('open');
+    document.querySelectorAll('.hamburger').forEach(function(h) { h.classList.remove('open'); });
+    document.body.style.overflow = '';
+  }
+
+  function mobNav(hash) {
+    closeMobMenu();
+    window.location.hash = hash;
+  }
+
+  // Expose globals
+  window.toggleMobMenu = toggleMobMenu;
+  window.closeMobMenu = closeMobMenu;
+  window.mobNav = mobNav;
+
+  // Build hamburgers after DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', buildHamburgers);
+  } else {
+    buildHamburgers();
+  }
+
+  // Close menu on Escape key
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeMobMenu();
+  });
+})();
 </script>
 </body>
 </html>
