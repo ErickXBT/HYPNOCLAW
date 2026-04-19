@@ -47,10 +47,19 @@ const server = http.createServer((req, res) => {
   });
 });
 
+let retryCount = 0;
+const MAX_RETRIES = 3;
+
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`Port ${PORT} already in use. Retrying in 2 seconds...`);
-    setTimeout(() => server.listen(PORT, HOST), 2000);
+    retryCount++;
+    if (retryCount <= MAX_RETRIES) {
+      console.error(`Port ${PORT} already in use. Retry ${retryCount}/${MAX_RETRIES} in 2 seconds...`);
+      setTimeout(() => server.listen(PORT, HOST), 2000);
+    } else {
+      console.error(`Port ${PORT} still in use after ${MAX_RETRIES} retries. Exiting.`);
+      process.exit(1);
+    }
   } else {
     throw err;
   }

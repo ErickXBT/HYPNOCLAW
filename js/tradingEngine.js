@@ -3,7 +3,12 @@
 class TradingEngine {
   constructor() {
     this.bondingCurves = new Map(); // tokenMint -> BondingCurve
-    this.feeSystem = window.feeSystem || new FeeSystem('creator-wallet-placeholder', PLATFORM_WALLET.toString());
+    const platformWallet = (typeof PLATFORM_WALLET !== 'undefined')
+      ? PLATFORM_WALLET.toString()
+      : (typeof window !== 'undefined' && window.PLATFORM_WALLET)
+        ? window.PLATFORM_WALLET.toString()
+        : '43oweKjd8XgBMYNKBhJAB7M7fpMVd2HQsUEuGgyfaseH';
+    this.feeSystem = window.feeSystem || new FeeSystem('creator-wallet-placeholder', platformWallet);
     this.antiBot = window.antiBotSystem || new AntiBotSystem();
   }
 
