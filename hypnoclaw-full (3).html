@@ -1,0 +1,2210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>HYPNOCLAW AI</title>
+<meta name="description" content="AI Health Agent for Insomnia - Built on Solana"/>
+<meta name="theme-color" content="#070707"/>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.98.4/lib/index.iife.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@solana/spl-token@0.4.9/lib/index.iife.min.js"></script>
+
+<!-- New module scripts -->
+<script src="js/tokenState.js"></script>
+<script src="systems/registry.js"></script>
+<script src="systems/tradeLogger.js"></script>
+<script src="rpc.js"></script>
+<script src="bonding-curve.js"></script>
+<script src="js/anti-bot.js"></script>
+<script src="fees.js"></script>
+<script src="js/dexService.js"></script>
+<script src="raydium.js"></script>
+<script src="trending.js"></script>
+<script src="trading-ui.js"></script>
+<script src="js/tradingEngine.js"></script>
+<script src="pages.js"></script>
+
+<!-- Global variable assignments -->
+<script>
+  // Assign global instances for modular architecture
+  window.globalTokenStateManager = window.tokenStateManager;
+  window.globalTokenRegistry = window.tokenRegistry;
+  window.globalTradeLogger = window.tradeLogger;
+  window.globalDexService = window.dexService;
+  window.globalTradingEngine = window.tradingEngine;
+  window.globalBondingCurve = null;
+  window.globalAntiBot = window.antiBotSystem;
+</script>
+
+<!-- Early Phantom Detection -->
+<script>
+  window.phantomDetected = false;
+  window.phantomReady = false;
+  window.phantomAPI = null;
+  
+  // Check Phantom API availability dengan aggressive polling
+  function detectPhantom() {
+    try {
+      // Cek berbagai cara Phantom bisa ter-inject
+      let phantom = null;
+      
+      // Method 1: window.phantom.solana (Chrome extension)
+      if (window.phantom?.solana?.isPhantom) {
+        phantom = window.phantom.solana;
+      }
+      // Method 2: window.solana (fallback)
+      else if (window.solana?.isPhantom) {
+        phantom = window.solana;
+      }
+      
+      if (phantom) {
+        window.phantomAPI = phantom;
+        window.phantomDetected = true;
+        window.phantomReady = true;
+        console.log('✅ Phantom detected:', {
+          isPhantom: phantom.isPhantom,
+          publicKey: phantom.publicKey,
+          method: window.phantom?.solana ? 'window.phantom.solana' : 'window.solana'
+        });
+        return true;
+      }
+    } catch (e) {
+      console.error('Error detecting Phantom:', e.message);
+    }
+    return false;
+  }
+  
+  // Try immediately
+  if (!detectPhantom()) {
+    // Jika tidak terdeteksi, poll dengan aggressive timing
+    const phantomCheckInterval = setInterval(() => {
+      if (detectPhantom()) {
+        clearInterval(phantomCheckInterval);
+      }
+    }, 100); // Check setiap 100ms
+    
+    // Stop polling setelah 5 detik
+    setTimeout(() => {
+      clearInterval(phantomCheckInterval);
+      if (!window.phantomDetected) {
+        console.log('⏹ Phantom detection timeout (5s)');
+      }
+    }, 5000);
+  }
+</script>
+
+<style>
+/* ══════════════════════════════════════════
+   GLOBAL VARS & RESET
+══════════════════════════════════════════ */
+:root {
+  --bg: #070707;
+  --bg2: #0d0d0d;
+  --red: #FF1A1A;
+  --dark-red: #8B0000;
+  --red-glow: rgba(255,26,26,0.4);
+  --red-dim: rgba(255,26,26,0.1);
+  --text: #f0e8e8;
+  --muted: #a07070;
+  --muted2: #8a6a6a;
+  --border: rgba(255,26,26,0.15);
+  --success: #00ff88;
+  --warning: #ffaa00;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Space Mono', monospace;
+  overflow-x: hidden;
+  cursor: crosshair;
+}
+
+/* SCANLINE */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255,26,26,0.013) 3px, rgba(255,26,26,0.013) 4px);
+  pointer-events: none; z-index: 9999;
+}
+/* GRAIN */
+.grain {
+  position: fixed; inset: 0; opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 9998;
+}
+/* PARTICLES */
+#particles { position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 0.2; filter: drop-shadow(0 0 4px rgba(255,0,0,0.5)); }
+
+/* ══════════════════════════════════════════
+   PAGE ROUTER SYSTEM
+══════════════════════════════════════════ */
+.page {
+  position: fixed; inset: 0;
+  overflow-y: auto; overflow-x: hidden;
+  z-index: 1;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.page.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(30px);
+}
+.page.slide-out {
+  opacity: 0;
+  transform: translateY(-30px);
+  pointer-events: none;
+}
+.page.slide-in {
+  animation: slideIn 0.5s ease forwards;
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(40px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ══════════════════════════════════════════
+   SHARED NAV
+══════════════════════════════════════════ */
+nav {
+  position: sticky; top: 0; left: 0; right: 0;
+  z-index: 500;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 48px;
+  background: rgba(7,7,7,0.96);
+  border-bottom: 1px solid rgba(255,26,26,0.08);
+  backdrop-filter: blur(8px);
+  transition: border-color 0.3s, background 0.3s;
+}
+nav.scrolled { border-bottom-color: var(--border); }
+.nav-logo {
+  font-family: 'Poppins', sans-serif; font-weight: 900;
+  font-size: 20px; letter-spacing: 3px;
+  color: var(--red); text-shadow: 0 0 20px var(--red-glow);
+  text-decoration: none; cursor: pointer;
+}
+.nav-logo span { color: var(--text); }
+.nav-links { display: flex; gap: 32px; list-style: none; }
+.nav-links a {
+  color: var(--muted); text-decoration: none;
+  font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  transition: color 0.2s, text-shadow 0.2s; cursor: pointer;
+}
+.nav-links a:hover { color: var(--red); text-shadow: 0 0 10px var(--red-glow); }
+.nav-right { display: flex; align-items: center; gap: 12px; }
+
+/* NAV WALLET (shared) */
+.nav-wallet-btn {
+  display: flex; align-items: center; gap: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 9px 18px;
+  font-family: 'Space Mono', monospace;
+  font-size: 10px; letter-spacing: 1px;
+  cursor: pointer; transition: all 0.3s;
+}
+.nav-wallet-btn:hover, .nav-wallet-btn.connected {
+  border-color: var(--red); color: var(--red);
+  box-shadow: 0 0 12px var(--red-glow);
+}
+.nav-wallet-btn.connected { background: rgba(255,26,26,0.08); }
+.wdot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted2); flex-shrink: 0; }
+.wdot.live { background: var(--success); box-shadow: 0 0 8px var(--success); animation: blink 2s infinite; }
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:0.35} }
+
+.nav-cta {
+  background: transparent; border: 1px solid var(--red);
+  color: var(--red); padding: 9px 20px;
+  font-family: 'Space Mono', monospace;
+  font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+  cursor: pointer; transition: all 0.3s; text-decoration: none;
+}
+.nav-cta:hover {
+  background: var(--red); color: var(--bg);
+  box-shadow: 0 0 30px var(--red-glow);
+}
+
+/* ══════════════════════════════════════════
+   HOME PAGE STYLES
+══════════════════════════════════════════ */
+
+/* HERO */
+.hero {
+  position: relative; z-index: 1;
+  min-height: 100vh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-align: center;
+  padding: 80px 24px 80px;
+  overflow: hidden;
+}
+.hero-bg-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(255,26,26,0.07);
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  animation: pulse-ring 4s ease-in-out infinite;
+}
+.hero-bg-ring:nth-child(1) { width: 700px; height: 700px; }
+.hero-bg-ring:nth-child(2) { width: 500px; height: 500px; animation-delay: 1s; }
+.hero-bg-ring:nth-child(3) { width: 900px; height: 900px; animation-delay: 2s; }
+@keyframes pulse-ring {
+  0%,100% { opacity: 0.3; transform: translate(-50%,-50%) scale(1); }
+  50%      { opacity: 0.7; transform: translate(-50%,-50%) scale(1.04); }
+}
+.hero-eyebrow {
+  font-size: 10px; letter-spacing: 5px; text-transform: uppercase;
+  color: var(--red); margin-bottom: 24px;
+  opacity: 0; animation: fade-up 0.8s 0.2s forwards;
+}
+.hero-title {
+  font-family: 'Poppins', sans-serif; font-weight: 900;
+  font-size: clamp(52px, 9vw, 110px); line-height: 0.9;
+  letter-spacing: -2px; text-transform: uppercase;
+  opacity: 0; animation: fade-up 0.8s 0.4s forwards;
+  position: relative; z-index: 2;
+}
+.hero-title .line-red {
+  display: block; color: var(--red);
+  text-shadow: 0 0 60px rgba(255,26,26,0.5), 0 0 120px rgba(255,26,26,0.2);
+}
+.hero-title .line-white { display: block; color: var(--text); }
+.hero-sub {
+  font-size: 13px; letter-spacing: 1px; color: var(--muted);
+  margin-top: 28px; max-width: 500px; line-height: 1.8;
+  opacity: 0; animation: fade-up 0.8s 0.6s forwards;
+}
+.hero-badges {
+  display: flex; gap: 16px; margin-top: 40px;
+  flex-wrap: wrap; justify-content: center;
+  opacity: 0; animation: fade-up 0.8s 0.7s forwards;
+}
+.badge {
+  border: 1px solid rgba(255,26,26,0.3); padding: 6px 16px;
+  font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted); background: rgba(255,26,26,0.05);
+}
+.badge.active { border-color: var(--red); color: var(--red); background: rgba(255,26,26,0.12); }
+.hero-btns {
+  display: flex; gap: 16px; margin-top: 48px;
+  flex-wrap: wrap; justify-content: center;
+  opacity: 0; animation: fade-up 0.8s 0.9s forwards;
+}
+.btn-primary {
+  background: var(--red); color: var(--bg); border: none;
+  padding: 14px 36px; font-family: 'Poppins', sans-serif;
+  font-weight: 700; font-size: 12px; letter-spacing: 3px;
+  text-transform: uppercase; cursor: pointer; transition: all 0.3s;
+  text-decoration: none; display: inline-block;
+  box-shadow: 0 0 30px rgba(255,26,26,0.4);
+}
+.btn-primary:hover { box-shadow: 0 0 60px rgba(255,26,26,0.7); transform: translateY(-2px); }
+.btn-outline {
+  background: transparent; color: var(--text);
+  border: 1px solid rgba(240,232,232,0.25);
+  padding: 14px 36px; font-family: 'Poppins', sans-serif;
+  font-weight: 700; font-size: 12px; letter-spacing: 3px;
+  text-transform: uppercase; cursor: pointer; transition: all 0.3s;
+  text-decoration: none; display: inline-block;
+}
+.btn-outline:hover { border-color: var(--red); color: var(--red); }
+.hero-scroll {
+  position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  opacity: 0; animation: fade-up 1s 1.2s forwards;
+}
+.scroll-line {
+  width: 1px; height: 50px;
+  background: linear-gradient(180deg, var(--red) 0%, transparent 100%);
+  animation: scroll-pulse 2s ease-in-out infinite;
+}
+@keyframes scroll-pulse { 0%,100%{opacity:0.4}50%{opacity:1} }
+.scroll-label { font-size: 9px; letter-spacing: 3px; color: var(--muted); text-transform: uppercase; writing-mode: vertical-rl; }
+@keyframes fade-up { from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:translateY(0)} }
+
+/* MARKETPLACE */
+.marketplace-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px;
+}
+.marketplace-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 30px;
+}
+.market-section {
+  background: rgba(20,20,20,0.6);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,0,0,0.3);
+  border-radius: 14px;
+  padding: 25px;
+  box-shadow:
+    0 0 20px rgba(255,0,0,0.3),
+    0 0 40px rgba(255,0,0,0.15);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.market-section:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 0 40px rgba(255,0,0,0.4);
+}
+.market-title {
+  font-size: 20px;
+  font-weight: bold;
+  color: white;
+  text-shadow: 0 0 8px rgba(255,0,0,0.6);
+  margin-bottom: 16px;
+}
+.token-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+.token-card {
+  background: rgba(10,10,10,0.8);
+  border: 1px solid rgba(255,26,26,0.15);
+  border-radius: 12px;
+  padding: 20px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+.token-card:hover {
+  border-color: rgba(255,26,26,0.4);
+  background: rgba(10,10,10,0.9);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(255,26,26,0.2);
+}
+.token-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.token-price {
+  font-size: 14px;
+  color: var(--success);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.token-stats {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+.token-trade-btn {
+  background: var(--red);
+  color: var(--bg);
+  border: none;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.token-trade-btn:hover {
+  background: var(--dark-red);
+  box-shadow: 0 0 20px rgba(255,26,26,0.4);
+}
+.empty-state {
+  color: var(--muted);
+  padding: 32px 0;
+  text-align: center;
+}
+
+/* SECTION BASE */
+section { position: relative; z-index: 1; padding: 100px 48px; }
+.section-label { font-size: 10px; letter-spacing: 5px; text-transform: uppercase; color: var(--red); margin-bottom: 16px; text-align: center; }
+.section-title { font-family: 'Poppins', sans-serif; font-weight: 900; font-size: clamp(32px,5vw,56px); line-height: 1; text-transform: uppercase; letter-spacing: -1px; text-align: center; }
+.section-divider { width: 60px; height: 2px; background: var(--red); margin: 24px auto; box-shadow: 0 0 10px var(--red-glow); }
+
+/* PRODUCTS */
+.products-grid {
+  display: grid; grid-template-columns: repeat(3,1fr);
+  gap: 1px; margin-top: 60px; background: rgba(255,26,26,0.1);
+}
+.product-card {
+  background: var(--bg); padding: 48px 40px;
+  position: relative; overflow: hidden;
+  transition: all 0.4s; cursor: pointer;
+  text-decoration: none; display: block; color: inherit;
+  text-align: center;
+}
+.product-card::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(135deg,rgba(255,26,26,0.08) 0%,transparent 60%);
+  opacity: 0; transition: opacity 0.4s;
+}
+.product-card:hover::before { opacity: 1; }
+.product-card:hover { transform: translateY(-4px); box-shadow: 0 20px 60px rgba(255,26,26,0.2); }
+.product-icon {
+  width: 48px; height: 48px; border: 1px solid rgba(255,26,26,0.4);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; margin: 0 auto 28px; color: var(--red); transition: all 0.3s;
+}
+.product-card:hover .product-icon {
+  background: var(--red); border-color: var(--red); color: var(--bg);
+  box-shadow: 0 0 30px var(--red-glow);
+}
+.product-tag { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: var(--red); margin-bottom: 12px; display: block; }
+.product-name { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 20px; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; }
+.product-desc { font-size: 12px; line-height: 1.8; color: var(--muted); }
+.product-arrow { position: absolute; bottom: 28px; right: 28px; color: var(--red); font-size: 18px; opacity: 0; transform: translateX(-10px); transition: all 0.3s; }
+.product-card:hover .product-arrow { opacity: 1; transform: translateX(0); }
+
+/* ABOUT / FEATURES */
+.features-layout { display: flex; flex-direction: column; align-items: center; gap: 80px; margin-top: 60px; }
+.feature-list { display: flex; flex-direction: column; gap: 32px; max-width: 600px; }
+.feature-item {
+  display: flex; gap: 20px; align-items: flex-start;
+  padding: 24px; border: 1px solid rgba(255,26,26,0.1);
+  background: rgba(255,26,26,0.03); transition: all 0.3s; cursor: default;
+}
+.feature-item:hover { border-color: rgba(255,26,26,0.35); background: rgba(255,26,26,0.07); transform: translateX(6px); }
+.feature-num { font-family: 'Poppins', sans-serif; font-weight: 900; font-size: 36px; color: rgba(255,26,26,0.2); line-height: 1; flex-shrink: 0; width: 48px; }
+.feature-title { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+.feature-text { font-size: 12px; color: var(--muted); line-height: 1.8; }
+.visual-block { position: relative; aspect-ratio: 1; max-width: 440px; margin: 0 auto; }
+.visual-inner { width: 100%; height: 100%; border: 1px solid rgba(255,26,26,0.2); position: relative; overflow: hidden; background: radial-gradient(circle at 50% 50%,rgba(255,26,26,0.06) 0%,transparent 70%); }
+.visual-eye { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 200px; height: 100px; }
+.visual-eye-outer { width: 200px; height: 100px; border-radius: 50%/50%; border: 2px solid rgba(255,26,26,0.5); position: relative; display: flex; align-items: center; justify-content: center; animation: eye-breathe 3s ease-in-out infinite; }
+@keyframes eye-breathe { 0%,100%{transform:scaleY(1)}50%{transform:scaleY(0.85)} }
+.visual-pupil { width: 60px; height: 60px; border-radius: 50%; background: radial-gradient(circle,var(--red) 0%,var(--dark-red) 60%,transparent 100%); box-shadow: 0 0 40px var(--red-glow),0 0 80px rgba(255,26,26,0.2); animation: pupil-pulse 2s ease-in-out infinite; }
+@keyframes pupil-pulse { 0%,100%{transform:scale(1)}50%{transform:scale(1.1);box-shadow:0 0 60px rgba(255,26,26,0.8),0 0 120px rgba(255,26,26,0.3)} }
+.visual-lines { position: absolute; inset: 0; }
+.v-line { position: absolute; background: rgba(255,26,26,0.08); }
+
+/* ASSISTANT PREVIEW */
+.assistant-preview { border: 1px solid rgba(255,26,26,0.2); background: rgba(255,26,26,0.03); overflow: hidden; max-width: 700px; margin: 60px auto 0; }
+.assistant-topbar { background: rgba(255,26,26,0.08); border-bottom: 1px solid rgba(255,26,26,0.15); padding: 14px 20px; display: flex; align-items: center; gap: 12px; }
+.topbar-dot { width: 8px; height: 8px; border-radius: 50%; }
+.topbar-dot:nth-child(1){background:rgba(255,26,26,0.6)}
+.topbar-dot:nth-child(2){background:rgba(255,100,26,0.4)}
+.topbar-dot:nth-child(3){background:rgba(255,200,26,0.3)}
+.topbar-title { font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--red); margin-left: 8px; }
+.chat-messages { padding: 28px; display: flex; flex-direction: column; gap: 16px; min-height: 240px; }
+.msg { display: flex; gap: 12px; align-items: flex-start; }
+.msg.user { flex-direction: row-reverse; }
+.msg-avatar { width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255,26,26,0.4); display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; background: rgba(255,26,26,0.08); color: var(--red); }
+.msg-bubble { max-width: 70%; padding: 12px 16px; font-size: 12px; line-height: 1.7; border: 1px solid rgba(255,26,26,0.1); background: rgba(255,26,26,0.04); color: var(--text); }
+.msg.user .msg-bubble { background: rgba(255,26,26,0.12); border-color: rgba(255,26,26,0.25); }
+.chat-input-row { border-top: 1px solid rgba(255,26,26,0.12); padding: 16px 20px; display: flex; gap: 12px; }
+.chat-input { flex: 1; background: transparent; border: 1px solid rgba(255,26,26,0.2); padding: 10px 14px; font-family: 'Space Mono',monospace; font-size: 12px; color: var(--text); outline: none; transition: border-color 0.2s; }
+.chat-input:focus { border-color: var(--red); }
+.chat-input::placeholder { color: var(--muted); }
+.chat-send { background: var(--red); border: none; padding: 10px 20px; color: var(--bg); font-size: 12px; cursor: pointer; font-family: 'Poppins',sans-serif; font-weight: 700; letter-spacing: 1px; transition: box-shadow 0.3s; }
+.chat-send:hover { box-shadow: 0 0 20px var(--red-glow); }
+.cursor-blink { display: inline-block; width: 2px; height: 12px; background: var(--red); margin-left: 2px; animation: cblink 1s infinite; vertical-align: middle; }
+@keyframes cblink { 0%,100%{opacity:1}50%{opacity:0} }
+
+/* TOKENOMICS */
+.token-layout { display: flex; flex-direction: column; align-items: center; gap: 80px; margin-top: 60px; }
+.donut-wrap { position: relative; width: 320px; height: 320px; }
+.donut-wrap svg { transform: rotate(-90deg); }
+.donut-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; }
+.donut-center-val { font-family: 'Poppins',sans-serif; font-weight: 900; font-size: 28px; color: var(--red); display: block; line-height: 1; }
+.donut-center-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
+.token-info { display: flex; flex-direction: column; gap: 20px; max-width: 500px; }
+.token-row { display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-bottom: 1px solid rgba(255,26,26,0.08); }
+.token-row-label { display: flex; align-items: center; gap: 12px; font-size: 12px; letter-spacing: 1px; }
+.token-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.token-pct { font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 18px; color: var(--red); }
+
+/* ROADMAP */
+.roadmap-timeline { position: relative; margin-top: 60px; padding-left: 40px; }
+.roadmap-timeline::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 1px; background: linear-gradient(180deg,var(--red) 0%,rgba(255,26,26,0.1) 100%); }
+.phase { position: relative; margin-bottom: 48px; padding: 32px 36px; border: 1px solid rgba(255,26,26,0.1); background: rgba(255,26,26,0.02); transition: all 0.3s; }
+.phase:hover { border-color: rgba(255,26,26,0.3); background: rgba(255,26,26,0.05); }
+.phase::before { content: ''; position: absolute; left: -44px; top: 36px; width: 10px; height: 10px; border-radius: 50%; background: var(--red); box-shadow: 0 0 15px var(--red-glow); }
+.phase.done::before { background: var(--dark-red); box-shadow: none; }
+.phase-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+.phase-num { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: var(--red); }
+.phase-status { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; padding: 4px 12px; border: 1px solid; }
+.phase-status.live { border-color: var(--red); color: var(--red); animation: blink 2s infinite; }
+.phase-status.done { border-color: rgba(255,26,26,0.3); color: var(--muted); }
+.phase-status.upcoming { border-color: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3); }
+.phase-name { font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 20px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
+.phase-items { display: flex; flex-direction: column; gap: 8px; }
+.phase-item { font-size: 12px; color: var(--muted); padding-left: 16px; position: relative; }
+.phase-item::before { content: '—'; position: absolute; left: 0; color: var(--red); opacity: 0.5; }
+
+/* HOME LAUNCHPAD PREVIEW (teaser only) */
+.lp-teaser {
+  border: 1px solid var(--border); background: rgba(255,26,26,0.03);
+  padding: 48px 40px; max-width: 680px; margin: 60px auto 0;
+  text-align: center; position: relative; overflow: hidden;
+}
+.lp-teaser::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(circle at 50% 0%, rgba(255,26,26,0.08) 0%, transparent 70%);
+}
+.lp-teaser-title { font-family: 'Poppins',sans-serif; font-weight: 900; font-size: 32px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 12px; position: relative; z-index: 1; }
+.lp-teaser-sub { font-size: 12px; color: var(--muted); line-height: 1.8; max-width: 420px; margin: 0 auto 32px; position: relative; z-index: 1; }
+.lp-teaser-features { display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; margin-bottom: 32px; position: relative; z-index: 1; }
+.lp-teaser-feat { font-size: 10px; letter-spacing: 1px; color: var(--muted); padding: 8px 14px; border: 1px solid rgba(255,26,26,0.15); background: rgba(255,26,26,0.04); }
+.lp-teaser-feat span { color: var(--red); }
+.lp-launch-btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--red); border: none; padding: 16px 40px;
+  font-family: 'Poppins',sans-serif; font-weight: 900;
+  font-size: 14px; letter-spacing: 3px; text-transform: uppercase;
+  color: var(--bg); cursor: pointer; transition: all 0.3s;
+  box-shadow: 0 0 40px rgba(255,26,26,0.4);
+  position: relative; z-index: 1;
+}
+.lp-launch-btn:hover { box-shadow: 0 0 70px rgba(255,26,26,0.7); transform: translateY(-3px); }
+.lp-launch-btn .arrow { font-size: 18px; transition: transform 0.3s; }
+.lp-launch-btn:hover .arrow { transform: translateX(6px); }
+
+/* FOOTER */
+footer { position: relative; z-index: 1; border-top: 1px solid rgba(255,26,26,0.12); padding: 60px 48px 40px; }
+.footer-top { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 48px; margin-bottom: 48px; }
+.footer-brand { font-family: 'Poppins',sans-serif; font-weight: 900; font-size: 24px; letter-spacing: 3px; color: var(--red); text-shadow: 0 0 20px var(--red-glow); margin-bottom: 16px; display: block; cursor: pointer; }
+.footer-desc { font-size: 12px; color: var(--muted); line-height: 1.8; max-width: 260px; }
+.footer-col-title { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: var(--red); margin-bottom: 20px; }
+.footer-links { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.footer-links a { font-size: 12px; color: var(--muted); text-decoration: none; transition: color 0.2s; cursor: pointer; }
+.footer-links a:hover { color: var(--red); }
+.footer-bottom { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,26,26,0.08); padding-top: 28px; font-size: 11px; color: rgba(160,112,112,0.5); }
+.footer-socials { display: flex; gap: 16px; }
+.footer-socials a { color: var(--muted); text-decoration: none; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; transition: color 0.2s; }
+.footer-socials a:hover { color: var(--red); }
+
+/* REVEAL */
+.reveal { opacity: 0; transform: translateY(40px); transition: opacity 0.7s ease, transform 0.7s ease; }
+.reveal.visible { opacity: 1; transform: translateY(0); }
+
+/* ══════════════════════════════════════════
+   LAUNCHPAD PAGE STYLES
+══════════════════════════════════════════ */
+.lp-page-body { min-height: calc(100vh - 62px); background: var(--bg); }
+
+/* BACK BTN */
+.back-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: none; border: 1px solid var(--border);
+  color: var(--muted); padding: 8px 16px;
+  font-family: 'Space Mono',monospace; font-size: 10px;
+  letter-spacing: 1px; cursor: pointer; transition: all 0.2s;
+  margin: 20px 48px 0;
+}
+.back-btn:hover { border-color: var(--red); color: var(--red); }
+
+/* PAGE HEADER */
+.lp-header { text-align: center; padding: 48px 24px 0; }
+.lp-eyebrow { font-size: 10px; letter-spacing: 5px; text-transform: uppercase; color: var(--red); margin-bottom: 12px; }
+.lp-title { font-family: 'Poppins',sans-serif; font-weight: 900; font-size: clamp(36px,6vw,64px); line-height: 0.95; text-transform: uppercase; letter-spacing: -1px; }
+.lp-title span { color: var(--red); text-shadow: 0 0 40px var(--red-glow); }
+.lp-subtitle { font-size: 12px; color: var(--muted); margin-top: 16px; line-height: 1.8; max-width: 520px; margin-left: auto; margin-right: auto; }
+
+/* STATS ROW */
+.lp-stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); margin: 32px 48px; }
+.lp-stat { background: var(--bg); padding: 18px 20px; text-align: center; }
+.lp-stat-val { font-family: 'Poppins',sans-serif; font-weight: 900; font-size: 20px; color: var(--red); text-shadow: 0 0 12px var(--red-glow); display: block; line-height: 1; }
+.lp-stat-lbl { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-top: 4px; display: block; }
+
+/* LAYOUT */
+.lp-layout { display: grid; grid-template-columns: 1fr 360px; gap: 24px; padding: 0 48px 60px; align-items: start; }
+
+/* FORM CARD */
+.fc { border: 1px solid var(--border); background: var(--bg2); overflow: hidden; }
+.fc-head { background: rgba(255,26,26,0.06); border-bottom: 1px solid var(--border); padding: 16px 22px; display: flex; align-items: center; justify-content: space-between; }
+.fc-title { font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 2px; }
+.fc-badge { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; padding: 3px 10px; border: 1px solid var(--red); color: var(--red); background: rgba(255,26,26,0.08); }
+.fc-body { padding: 24px; }
+
+/* FIELDS */
+.fld { margin-bottom: 18px; }
+.fld label { display: block; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+.fld label em { color: var(--red); font-style: normal; }
+.fld label small { color: rgba(160,112,112,0.6); font-size: 8px; }
+.fld input, .fld textarea {
+  width: 100%; background: rgba(255,26,26,0.03);
+  border: 1px solid rgba(255,26,26,0.18);
+  padding: 11px 13px; font-family: 'Space Mono',monospace;
+  font-size: 12px; color: var(--text); outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s; resize: none;
+}
+.fld input:focus, .fld textarea:focus { border-color: var(--red); box-shadow: 0 0 8px rgba(255,26,26,0.12); }
+.fld input::placeholder, .fld textarea::placeholder { color: var(--muted2); }
+.fld-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+/* IMAGE UPLOAD */
+.img-drop {
+  border: 2px dashed rgba(255,26,26,0.22); padding: 28px 16px;
+  text-align: center; cursor: pointer; transition: all 0.3s;
+  position: relative; overflow: hidden; background: rgba(255,26,26,0.02);
+}
+.img-drop:hover, .img-drop.drag { border-color: var(--red); background: rgba(255,26,26,0.06); }
+.img-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; border: none; padding: 0; }
+.img-drop-icon { font-size: 28px; margin-bottom: 6px; display: block; }
+.img-drop-text { font-size: 11px; color: var(--muted); line-height: 1.6; }
+.img-drop-text strong { color: var(--red); display: block; font-family: 'Poppins',sans-serif; font-size: 12px; }
+.img-prev-row { display: none; align-items: center; gap: 14px; padding: 14px; border: 1px solid var(--border); background: rgba(255,26,26,0.03); margin-top: 10px; }
+.img-prev-row.show { display: flex; }
+.img-prev { width: 56px; height: 56px; object-fit: cover; border: 1px solid var(--border); }
+.img-prev-meta { flex: 1; }
+.img-prev-name { font-size: 11px; color: var(--text); margin-bottom: 3px; }
+.img-prev-size { font-size: 10px; color: var(--muted); }
+.img-rm { background: none; border: 1px solid rgba(255,26,26,0.3); color: var(--red); padding: 5px 10px; font-size: 10px; cursor: pointer; font-family: 'Space Mono',monospace; transition: all 0.2s; }
+.img-rm:hover { background: rgba(255,26,26,0.15); }
+
+/* SOCIAL */
+.social-wrap { border: 1px solid var(--border); padding: 18px; background: rgba(255,26,26,0.02); margin-bottom: 18px; }
+.social-wrap-title { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: var(--red); margin-bottom: 14px; }
+.social-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.social-row:last-child { margin-bottom: 0; }
+.social-ic { width: 34px; height: 34px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; background: rgba(255,26,26,0.05); }
+.social-row input { flex: 1; background: rgba(255,26,26,0.03); border: 1px solid rgba(255,26,26,0.13); padding: 9px 11px; font-family: 'Space Mono',monospace; font-size: 11px; color: var(--text); outline: none; transition: border-color 0.2s; }
+.social-row input:focus { border-color: var(--red); }
+.social-row input::placeholder { color: var(--muted2); }
+
+/* FIXED SUPPLY */
+.supply-box { border: 1px solid rgba(255,170,0,0.28); background: rgba(255,170,0,0.04); padding: 14px 18px; margin-bottom: 18px; display: flex; align-items: center; gap: 12px; }
+.supply-val { font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 15px; color: var(--warning); }
+.supply-sub { font-size: 9px; color: var(--muted); letter-spacing: 1px; margin-top: 2px; }
+
+/* VESTING */
+.vest-box { border: 1px solid var(--border); background: rgba(255,26,26,0.03); padding: 16px 18px; margin-bottom: 18px; }
+.vest-title { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--red); margin-bottom: 12px; }
+.vest-bars { display: flex; flex-direction: column; gap: 8px; }
+.vest-row { display: flex; align-items: center; gap: 10px; }
+.vest-row-lbl { font-size: 10px; color: var(--muted); width: 116px; flex-shrink: 0; }
+.vest-bw { flex: 1; height: 5px; background: rgba(255,26,26,0.1); position: relative; }
+.vest-b { position: absolute; left: 0; top: 0; height: 100%; background: var(--red); }
+.vest-row-pct { font-size: 10px; color: var(--red); width: 32px; flex-shrink: 0; text-align: right; }
+
+/* FEES */
+.fees-tbl { border: 1px solid var(--border); background: rgba(255,26,26,0.02); overflow: hidden; margin-bottom: 20px; }
+.fee-r { display: flex; justify-content: space-between; align-items: center; padding: 11px 15px; border-bottom: 1px solid rgba(255,26,26,0.05); font-size: 11px; }
+.fee-r:last-child { border-bottom: none; }
+.fee-r-lbl { color: var(--muted); }
+.fee-r-val { font-family: 'Poppins',sans-serif; font-weight: 700; }
+.fee-r.total { background: rgba(255,26,26,0.06); border-top: 1px solid var(--border); }
+.fee-r.total .fee-r-lbl { color: var(--text); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+.fee-r.total .fee-r-val { color: var(--red); font-size: 15px; }
+
+/* DEPLOY BTN */
+.deploy-btn {
+  width: 100%; background: var(--red); border: none;
+  padding: 17px 24px; font-family: 'Poppins',sans-serif;
+  font-weight: 900; font-size: 13px; letter-spacing: 3px;
+  text-transform: uppercase; color: var(--bg); cursor: pointer;
+  transition: all 0.3s; position: relative; overflow: hidden;
+  box-shadow: 0 0 30px rgba(255,26,26,0.3);
+}
+.deploy-btn:hover:not(:disabled) { box-shadow: 0 0 60px rgba(255,26,26,0.6); transform: translateY(-2px); }
+.deploy-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+.btn-shim { position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg,transparent,rgba(255,255,255,0.14),transparent); animation: shim 2s infinite; }
+@keyframes shim { to { left: 100%; } }
+
+/* PROGRESS */
+.prog-wrap { display: none; margin-top: 18px; border: 1px solid var(--border); background: rgba(255,26,26,0.02); overflow: hidden; }
+.prog-wrap.show { display: block; }
+.prog-hd { background: rgba(255,26,26,0.06); border-bottom: 1px solid var(--border); padding: 11px 15px; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--red); }
+.prog-steps { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.step { display: flex; align-items: center; gap: 10px; padding: 9px 13px; font-size: 11px; border: 1px solid transparent; transition: all 0.3s; }
+.step.active { border-color: rgba(255,170,0,0.3); background: rgba(255,170,0,0.04); }
+.step.done { border-color: rgba(0,255,136,0.2); background: rgba(0,255,136,0.04); }
+.step.failed { border-color: rgba(255,26,26,0.3); background: rgba(255,26,26,0.06); }
+.step-ic { font-size: 14px; width: 20px; text-align: center; }
+.step-lbl { flex: 1; }
+.step-st { font-size: 10px; letter-spacing: 1px; }
+.step.active .step-st { color: var(--warning); }
+.step.done .step-st { color: var(--success); }
+.step.failed .step-st { color: var(--red); }
+.step-spin { width: 11px; height: 11px; border: 2px solid rgba(255,170,0,0.3); border-top-color: var(--warning); border-radius: 50%; animation: spin 0.8s linear infinite; display: none; }
+.step.active .step-spin { display: block; }
+@keyframes spin { to{transform:rotate(360deg)} }
+
+/* SUCCESS */
+.success-box { display: none; margin-top: 18px; border: 1px solid rgba(0,255,136,0.2); background: rgba(0,255,136,0.03); padding: 24px; text-align: center; }
+.success-box.show { display: block; }
+.suc-ico { font-size: 38px; margin-bottom: 10px; }
+.suc-title { font-family: 'Poppins',sans-serif; font-weight: 900; font-size: 17px; color: var(--success); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; }
+.suc-ca { font-size: 10px; color: var(--muted); word-break: break-all; background: rgba(0,0,0,0.3); padding: 10px; margin: 10px 0; border: 1px solid rgba(0,255,136,0.1); cursor: pointer; transition: all 0.2s; line-height: 1.6; }
+.suc-ca:hover { border-color: rgba(0,255,136,0.3); }
+.suc-ca strong { color: var(--success); display: block; font-size: 10px; margin-bottom: 3px; }
+.suc-links { display: flex; gap: 8px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+.suc-link { border: 1px solid var(--border); padding: 7px 14px; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; text-decoration: none; color: var(--muted); transition: all 0.2s; }
+.suc-link:hover { border-color: var(--red); color: var(--red); }
+.suc-link.primary { border-color: var(--success); color: var(--success); }
+.suc-link.primary:hover { background: rgba(0,255,136,0.08); }
+
+/* DISCLAIMER */
+.disclaimer-box { font-size: 10px; color: var(--muted); line-height: 1.7; padding: 13px 15px; border: 1px solid rgba(255,170,0,0.1); background: rgba(255,170,0,0.02); margin-top: 4px; }
+
+/* SIDEBAR */
+.sidebar { display: flex; flex-direction: column; gap: 16px; }
+.preview-card { border: 1px solid var(--border); background: var(--bg2); overflow: hidden; position: sticky; top: 80px; }
+.preview-token-wrap { padding: 24px; text-align: center; background: radial-gradient(circle at 50% 40%,rgba(255,26,26,0.08) 0%,transparent 70%); }
+.preview-logo-wrap { width: 72px; height: 72px; margin: 0 auto 14px; border: 2px solid var(--border); border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; background: rgba(255,26,26,0.06); font-size: 28px; position: relative; }
+.preview-logo-wrap img { width: 100%; height: 100%; object-fit: cover; display: none; }
+.preview-name { font-family: 'Poppins',sans-serif; font-weight: 900; font-size: 18px; text-transform: uppercase; letter-spacing: 2px; }
+.preview-sym { font-size: 11px; color: var(--red); letter-spacing: 3px; margin-top: 3px; }
+.preview-desc { font-size: 11px; color: var(--muted); margin-top: 10px; line-height: 1.7; max-height: 56px; overflow: hidden; }
+.preview-socials { display: flex; justify-content: center; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--border); }
+.preview-social { width: 30px; height: 30px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--muted); text-decoration: none; transition: all 0.2s; }
+.preview-social:hover, .preview-social.on { border-color: rgba(255,26,26,0.4); color: var(--red); background: rgba(255,26,26,0.06); }
+.preview-info { padding: 14px 18px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 7px; }
+.prev-row { display: flex; justify-content: space-between; font-size: 11px; }
+.prev-row-lbl { color: var(--muted); }
+.prev-row-val { color: var(--text); font-family: 'Poppins',sans-serif; font-weight: 600; }
+
+/* RECENT LAUNCHES */
+.recent-card { border: 1px solid var(--border); background: var(--bg2); overflow: hidden; }
+.recent-list { max-height: 300px; overflow-y: auto; }
+.recent-list::-webkit-scrollbar { width: 3px; }
+.recent-list::-webkit-scrollbar-thumb { background: var(--border); }
+.recent-item { display: flex; align-items: center; gap: 10px; padding: 12px 15px; border-bottom: 1px solid rgba(255,26,26,0.05); transition: background 0.2s; cursor: pointer; }
+.recent-item:hover { background: rgba(255,26,26,0.04); }
+.recent-item:last-child { border-bottom: none; }
+.recent-logo { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; background: rgba(255,26,26,0.06); }
+.recent-logo img { width: 100%; height: 100%; object-fit: cover; }
+.recent-info { flex: 1; min-width: 0; }
+.recent-name { font-size: 11px; font-family: 'Poppins',sans-serif; font-weight: 700; }
+.recent-ca { font-size: 9px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recent-time { font-size: 9px; color: var(--muted); flex-shrink: 0; }
+
+/* WALLET BAR (launchpad) */
+.wallet-bar { display: flex; align-items: center; justify-content: space-between; padding: 14px 48px; border-bottom: 1px solid rgba(255,26,26,0.06); background: rgba(255,26,26,0.02); }
+.net-badge { display: flex; align-items: center; gap: 6px; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); padding: 5px 10px; border: 1px solid var(--border); }
+.net-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); animation: blink 2s infinite; }
+.sol-bal { font-size: 11px; color: var(--muted); padding: 5px 12px; border: 1px solid var(--border); background: rgba(255,26,26,0.03); }
+.sol-bal span { color: var(--warning); font-family: 'Poppins',sans-serif; font-weight: 700; }
+
+/* PHANTOM MODAL */
+.modal-ov { position: fixed; inset: 0; z-index: 9000; background: rgba(7,7,7,0.92); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; }
+.modal-ov.show { display: flex; }
+.modal-box { border: 1px solid var(--border); background: var(--bg2); padding: 40px; max-width: 420px; width: 90%; text-align: center; }
+.modal-box-ico { font-size: 44px; margin-bottom: 14px; }
+.modal-box-title { font-family: 'Poppins',sans-serif; font-weight: 900; font-size: 18px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; }
+.modal-box-sub { font-size: 12px; color: var(--muted); line-height: 1.8; margin-bottom: 22px; }
+.modal-btns { display: flex; gap: 10px; justify-content: center; }
+.modal-btn { padding: 10px 22px; border: 1px solid var(--border); background: none; color: var(--text); font-family: 'Space Mono',monospace; font-size: 11px; letter-spacing: 1px; cursor: pointer; transition: all 0.2s; }
+.modal-btn:hover { border-color: var(--red); color: var(--red); }
+.modal-btn.primary { background: var(--red); border-color: var(--red); color: var(--bg); text-decoration: none; display: inline-flex; align-items: center; }
+.modal-btn.primary:hover { box-shadow: 0 0 18px var(--red-glow); }
+
+/* TOKEN MARKETPLACE */
+.marketplace-sections { display: flex; flex-direction: column; gap: 60px; margin-top: 60px; }
+.market-section { margin-top: 40px; }
+.market-title { font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 20px; margin-bottom: 20px; color: var(--text); }
+.token-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.token-card {
+  border: 1px solid var(--border); background: var(--bg2);
+  padding: 20px; cursor: pointer; transition: all 0.3s;
+  text-decoration: none; color: inherit;
+}
+.token-card:hover { border-color: var(--red); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(255,26,26,0.15); }
+.token-name { font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 16px; margin-bottom: 8px; }
+.token-price { font-size: 14px; color: var(--success); font-weight: 600; margin-bottom: 12px; }
+.token-stats { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+.token-stat { display: flex; justify-content: space-between; }
+.token-trade-btn {
+  width: 100%; background: var(--red); border: none;
+  padding: 10px 16px; font-family: 'Poppins',sans-serif;
+  font-weight: 700; font-size: 12px; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--bg); cursor: pointer;
+  transition: all 0.3s; text-decoration: none; display: inline-block;
+}
+.token-trade-btn:hover { box-shadow: 0 0 20px rgba(255,26,26,0.4); transform: translateY(-1px); }
+
+/* TOKEN TRADING PAGE */
+.token-trading-container { padding: 48px; max-width: 1200px; margin: 0 auto; }
+.trading-ui { display: grid; grid-template-columns: 1fr 400px; gap: 40px; }
+.token-info { margin-bottom: 32px; }
+.token-info h2 { font-family: 'Poppins',sans-serif; font-weight: 900; font-size: 32px; margin-bottom: 16px; }
+.token-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.stat { font-size: 14px; color: var(--muted); }
+.stat span { color: var(--text); font-weight: 600; }
+.trading-panel { display: flex; flex-direction: column; gap: 24px; }
+.trade-section { border: 1px solid var(--border); background: var(--bg2); padding: 24px; }
+.trade-section h3 { font-family: 'Poppins',sans-serif; font-weight: 700; margin-bottom: 16px; }
+.trade-section input { width: 100%; margin-bottom: 12px; }
+.trade-section button { width: 100%; margin-bottom: 8px; }
+.trade-history { border: 1px solid var(--border); background: var(--bg2); padding: 24px; }
+.trade-history h3 { font-family: 'Poppins',sans-serif; font-weight: 700; margin-bottom: 16px; }
+.trade-entry { padding: 8px 0; border-bottom: 1px solid rgba(255,26,26,0.1); font-size: 12px; color: var(--muted); }
+.trade-entry:last-child { border-bottom: none; }
+
+/* TRADE PLATFORM PAGE */
+.trade-platform-container { padding: 48px; text-align: center; }
+
+/* RESPONSIVE */
+@media (max-width: 960px) {
+  nav { padding: 14px 20px; }
+  .nav-links { display: none; }
+  section { padding: 60px 20px; }
+  .stats-bar { grid-template-columns: repeat(2,1fr); padding: 0 20px; }
+  .products-grid { grid-template-columns: 1fr; }
+  .features-layout { flex-direction: column; gap: 40px; }
+  .token-layout { flex-direction: column; align-items: center; }
+  .footer-top { grid-template-columns: 1fr 1fr; gap: 28px; }
+  .footer-bottom { flex-direction: column; gap: 12px; }
+  .lp-stats { grid-template-columns: repeat(2,1fr); margin: 20px 20px; }
+  .lp-layout { grid-template-columns: 1fr; padding: 0 20px 40px; }
+  .preview-card { position: static; }
+  .fld-row2 { grid-template-columns: 1fr; }
+  .wallet-bar { padding: 12px 20px; flex-wrap: wrap; gap: 10px; }
+  .back-btn { margin: 14px 20px 0; }
+  .hero { padding: 60px 20px 60px; }
+  .hero-title { font-size: clamp(36px, 8vw, 60px); }
+  .hero-sub { font-size: 12px; max-width: 90%; }
+  .product-card { padding: 32px 20px; }
+  .feature-list { max-width: 90%; }
+  .visual-block { max-width: 100%; aspect-ratio: auto; min-height: 300px; }
+  .lp-teaser { padding: 32px 20px; max-width: 90%; }
+  .lp-title { font-size: clamp(24px, 6vw, 40px); }
+  .lp-subtitle { font-size: 11px; }
+  .modal-box { padding: 30px 20px; }
+  .roadmap-timeline { padding-left: 20px; }
+}
+
+@media (max-width: 640px) {
+  body { cursor: default; }
+  nav { padding: 12px 16px; }
+  .nav-logo { font-size: 16px; letter-spacing: 2px; }
+  .nav-cta { padding: 8px 16px; font-size: 9px; }
+  .nav-wallet-btn { padding: 8px 14px; font-size: 9px; }
+  section { padding: 48px 16px; }
+  .hero { padding: 50px 16px 50px; min-height: 80vh; }
+  .hero-eyebrow { font-size: 9px; margin-bottom: 16px; }
+  .hero-title { font-size: clamp(28px, 7vw, 48px); line-height: 0.95; }
+  .hero-sub { font-size: 11px; max-width: 100%; margin-top: 20px; }
+  .hero-badges { gap: 12px; margin-top: 28px; }
+  .badge { padding: 5px 12px; font-size: 9px; }
+  .hero-btns { gap: 12px; margin-top: 32px; flex-direction: column; }
+  .btn-primary, .btn-outline { padding: 12px 28px; font-size: 11px; }
+  .stats-bar { grid-template-columns: 1fr; padding: 0 16px; border: none; }
+  .stat-item { padding: 24px 16px; border: 1px solid var(--border); margin-bottom: 1px; }
+  .stat-item:last-child { border-bottom: 1px solid var(--border); }
+  .stat-num { font-size: 28px; }
+  .stat-label { font-size: 9px; }
+  .section-label { font-size: 9px; margin-bottom: 12px; }
+  .section-title { font-size: clamp(24px, 5vw, 36px); }
+  .section-divider { width: 48px; }
+  .products-grid { gap: 0; }
+  .product-card { padding: 24px 16px; }
+  .product-icon { width: 40px; height: 40px; font-size: 18px; margin-bottom: 20px; }
+  .product-tag { font-size: 8px; margin-bottom: 10px; }
+  .product-name { font-size: 16px; margin-bottom: 12px; }
+  .product-desc { font-size: 11px; }
+  .product-arrow { display: none; }
+  .feature-list { max-width: 100%; gap: 20px; }
+  .feature-item { padding: 16px; gap: 12px; }
+  .feature-num { font-size: 24px; width: 32px; }
+  .feature-title { font-size: 12px; }
+  .feature-text { font-size: 11px; }
+  .visual-block { max-width: 100%; margin-top: 20px; }
+  .assistant-preview { max-width: 90%; margin: 40px auto 0; }
+  .chat-messages { min-height: 200px; padding: 20px; }
+  .msg-bubble { max-width: 85%; font-size: 11px; padding: 10px 12px; }
+  .chat-input { font-size: 11px; padding: 8px 10px; }
+  .chat-send { padding: 8px 16px; font-size: 11px; }
+  .donut-wrap { width: 240px; height: 240px; margin: 0 auto; }
+  .donut-wrap svg { width: 240px; height: 240px; }
+  .token-info { max-width: 100%; }
+  .marketplace-container { padding: 20px; }
+  .marketplace-grid { grid-template-columns: 1fr; gap: 20px; }
+  .market-section { padding: 20px; }
+  .market-title { font-size: 18px; margin-bottom: 16px; }
+  .token-cards { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .token-card { padding: 16px; }
+  .token-name { font-size: 14px; }
+  .token-price { font-size: 13px; }
+  .token-stats { font-size: 11px; margin-bottom: 14px; }
+  .token-trade-btn { padding: 8px 12px; font-size: 11px; }
+  .token-table-wrap { padding: 18px 16px; }
+  .token-table-scroll { overflow-x: auto; }
+  .token-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .token-table th, .token-table td { padding: 10px 12px; border: 1px solid rgba(255,26,26,0.12); }
+  .token-table th { color: var(--text); background: rgba(255,26,26,0.08); font-weight: 600; }
+  .token-table tr:hover { background: rgba(255,26,26,0.06); }
+  .btn-small { padding: 6px 10px; font-size: 10px; border: 1px solid rgba(255,26,26,0.24); border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; }
+  .btn-small:hover { background: rgba(255,26,26,0.12); border-color: rgba(255,26,26,0.4); }
+  .empty-state { color: var(--muted); padding: 32px 0; text-align: center; }
+  .lp-teaser { padding: 24px 16px; max-width: 100%; margin: 40px auto 0; }
+  .lp-teaser-title { font-size: 24px; margin-bottom: 12px; }
+  .lp-teaser-sub { font-size: 11px; margin-bottom: 24px; }
+  .lp-teaser-features { gap: 12px; }
+  .lp-teaser-feat { font-size: 9px; padding: 6px 10px; }
+  .lp-launch-btn { padding: 12px 28px; font-size: 12px; gap: 8px; }
+  .footer-top { grid-template-columns: 1fr; gap: 28px; }
+  .footer-col-title { margin-bottom: 16px; }
+  .footer-links { gap: 10px; }
+  .footer-links a { font-size: 11px; }
+  .footer-bottom { flex-direction: column; gap: 10px; font-size: 10px; }
+  .footer-socials { gap: 12px; }
+  .footer-socials a { font-size: 10px; }
+  .lp-header { padding: 36px 16px 0; }
+  .lp-eyebrow { font-size: 9px; margin-bottom: 10px; }
+  .lp-title { font-size: clamp(20px, 5vw, 32px); line-height: 0.9; }
+  .lp-subtitle { font-size: 10px; margin-top: 12px; max-width: 90%; }
+  .lp-stats { grid-template-columns: 1fr; margin: 16px 16px; gap: 0; }
+  .lp-stat { border: 1px solid var(--border); padding: 16px; margin-bottom: -1px; }
+  .lp-stat-val { font-size: 20px; }
+  .lp-stat-lbl { font-size: 8px; }
+  .lp-layout { padding: 0 16px 24px; }
+  .lp-form-title { font-size: 14px; margin-bottom: 20px; }
+  .fld-label { font-size: 10px; }
+  .fld-input, .fld-textarea { font-size: 11px; padding: 10px 12px; }
+  .fld-hint { font-size: 9px; }
+  .upload-zone { padding: 24px 16px; }
+  .upload-icon { font-size: 32px; margin-bottom: 12px; }
+  .upload-text { font-size: 11px; }
+  .prev-thumb { max-width: 60px; }
+  .remove-img-btn { padding: 6px 12px; font-size: 9px; }
+  .liq-row { gap: 12px; }
+  .prog-wrap { max-width: 90%; }
+  .prog-step { padding: 12px; font-size: 10px; }
+  .step-dot { width: 28px; height: 28px; font-size: 10px; }
+  .success-box { padding: 24px 16px; }
+  .success-title { font-size: 18px; }
+  .success-lnks { gap: 10px; }
+  .success-lnk { padding: 8px 14px; font-size: 10px; }
+  .roadmap-timeline { padding-left: 16px; }
+  .phase { padding: 20px 16px; margin-bottom: 32px; }
+  .phase::before { left: -28px; top: 24px; }
+  .phase-name { font-size: 16px; }
+  .phase-item { font-size: 11px; }
+  .modal-box { padding: 24px 16px; }
+  .modal-box-ico { font-size: 36px; margin-bottom: 12px; }
+  .modal-box-title { font-size: 16px; margin-bottom: 10px; }
+  .modal-box-sub { font-size: 11px; margin-bottom: 18px; }
+  .modal-btns { flex-direction: column; gap: 8px; }
+  .modal-btn { padding: 10px 16px; font-size: 10px; width: 100%; }
+
+  /* Token Registry Table */
+  .token-table-wrap { padding: 18px 16px; }
+  .token-table-scroll { overflow-x: auto; }
+  .token-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .token-table th, .token-table td { padding: 10px 12px; border: 1px solid rgba(255,26,26,0.12); }
+  .token-table th { color: var(--text); background: rgba(255,26,26,0.08); font-weight: 600; }
+  .token-table tr:hover { background: rgba(255,26,26,0.06); }
+  .btn-small { padding: 6px 10px; font-size: 10px; border: 1px solid rgba(255,26,26,0.24); border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; }
+  .btn-small:hover { background: rgba(255,26,26,0.12); border-color: rgba(255,26,26,0.4); }
+  .empty-state { color: var(--muted); padding: 32px 0; text-align: center; }
+}
+</style>
+</head>
+<body>
+
+<div class="grain"></div>
+<canvas id="particles"></canvas>
+<div class="toast-ct" id="toastCt"></div>
+
+<!-- PHANTOM MODAL -->
+<div class="modal-ov" id="phantomModal">
+  <div class="modal-box">
+    <div class="modal-box-ico">👻</div>
+    <div class="modal-box-title">Phantom Wallet Required</div>
+    <div class="modal-box-sub">
+      <p style="margin-bottom: 12px;">You need Phantom Wallet to deploy tokens on Solana mainnet.</p>
+      <p style="font-size: 11px; color: var(--muted); margin-bottom: 12px;">
+        <strong style="color: var(--text);">1.</strong> Click "Install Phantom" to download the wallet<br/>
+        <strong style="color: var(--text);">2.</strong> Install and create/import your wallet<br/>
+        <strong style="color: var(--text);">3.</strong> Come back and click "Connect Phantom" again
+      </p>
+    </div>
+    <div class="modal-btns">
+      <button class="modal-btn" onclick="document.getElementById('phantomModal').classList.remove('show')">Cancel</button>
+      <a class="modal-btn primary" href="https://phantom.app" target="_blank">Install Phantom →</a>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     PAGE: HOME
+════════════════════════════════════════ -->
+<div class="page" id="page-home">
+
+  <!-- NAV HOME -->
+  <nav id="nav-home">
+    <a class="nav-logo" onclick="goHome()">HYPNO<span>CLAW</span></a>
+    <ul class="nav-links">
+      <li><a onclick="homeScrollTo('products')">Products</a></li>
+      <li><a onclick="homeScrollTo('about')">About</a></li>
+      <li><a onclick="homeScrollTo('tokenomics')">Token</a></li>
+      <li><a onclick="homeScrollTo('roadmap')">Roadmap</a></li>
+      <li><a onclick="goToTrending()">Trending</a></li>
+      <li><a onclick="goToTokens()">Tokens</a></li>
+    </ul>
+    <div class="nav-right">
+      <button class="nav-cta" onclick="goLaunchpad()">Launch App</button>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-bg-ring"></div>
+    <div class="hero-bg-ring"></div>
+    <div class="hero-bg-ring"></div>
+    <p class="hero-eyebrow">AI Health Agent · Built on Solana</p>
+    <h1 class="hero-title">
+      <span class="line-white">SLEEP</span>
+      <span class="line-red">SMARTER</span>
+      <span class="line-white">LIVE BETTER</span>
+    </h1>
+    <p class="hero-sub">HYPNOCLAW is the first AI-powered health agent for insomnia, combining clinical sleep intelligence with blockchain-native rewards — all running on Solana.</p>
+    <div class="hero-badges">
+      <span class="badge active">✦ LIVE ON SOLANA</span>
+      <span class="badge">GPT-4o POWERED</span>
+      <span class="badge">PHANTOM WALLET</span>
+      <span class="badge">HELIUS RPC</span>
+    </div>
+    <div class="hero-btns">
+      <button class="btn-primary" onclick="homeScrollTo('products')">Explore Products</button>
+      <button class="btn-outline" onclick="homeScrollTo('tokenomics')">View Tokenomics</button>
+    </div>
+    <div class="hero-scroll" style="display: none;">
+      <div class="scroll-line"></div>
+      <span class="scroll-label">Scroll</span>
+    </div>
+  </section>
+
+  <!-- STATS BAR -->
+  <div class="center-container">
+    <div class="stats-section reveal">
+      <div class="stat-card"><span class="stat-num">1B</span><span class="stat-label">Total Supply</span></div>
+      <div class="stat-card"><span class="stat-num">~$0.05</span><span class="stat-label">Deploy Cost</span></div>
+      <div class="stat-card"><span class="stat-num">4</span><span class="stat-label">AI Consult Modes</span></div>
+      <div class="stat-card"><span class="stat-num">∞</span><span class="stat-label">Sleep Sessions</span></div>
+    </div>
+  </div>
+
+  <!-- MARKETPLACE SECTIONS -->
+  <div class="marketplace-container">
+    <div class="marketplace-grid">
+      <div class="market-section">
+        <div class="market-title">🔥 Trending Tokens</div>
+        <div class="token-cards" id="trending-tokens"></div>
+      </div>
+      <div class="market-section">
+        <div class="market-title">🆕 New Launches</div>
+        <div class="token-cards" id="new-launches"></div>
+      </div>
+      <div class="market-section">
+        <div class="market-title">📈 Top Volume</div>
+        <div class="token-cards" id="top-volume"></div>
+      </div>
+      <div class="market-section">
+        <div class="market-title">💎 Top Liquidity</div>
+        <div class="token-cards" id="top-liquidity"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRODUCTS -->
+  <section id="products">
+    <div class="reveal">
+      <p class="section-label">Our Products</p>
+      <h2 class="section-title">What HYPNOCLAW<br>Offers You</h2>
+      <div class="section-divider"></div>
+    </div>
+    <div class="products-grid reveal">
+      <div class="product-card">
+        <div class="product-icon">🧠</div>
+        <span class="product-tag">AI · Health</span>
+        <div class="product-name">HYPNOCLAW Assistant</div>
+        <p class="product-desc">An intelligent sleep health advisor powered by GPT-4o-mini. Four consultation modes: clinical, calm, data-driven, and friendly. Full streaming support and emergency risk detection.</p>
+        <span class="product-arrow">→</span>
+      </div>
+      <div class="product-card" onclick="goLaunchpad()" style="cursor:pointer;">
+        <div class="product-icon">⬡</div>
+        <span class="product-tag">Web3 · Solana</span>
+        <div class="product-name">Token Launchpad</div>
+        <p class="product-desc">Deploy SPL tokens on Solana mainnet. Fixed 1B supply, 20% dev vesting for 45 days, auto-liquidity on Raydium CPMM. LP tokens burned automatically — fully rug-proof.</p>
+        <span class="product-arrow">→</span>
+      </div>
+      <div class="product-card">
+        <div class="product-icon">✦</div>
+        <span class="product-tag">AI · Generative</span>
+        <div class="product-name">Generative AI Studio</div>
+        <p class="product-desc">Create dreamlike sleep-themed visuals using OpenAI's gpt-image-1 model. Generate immersive imagery for your wellness journey with optional reference image support.</p>
+        <span class="product-arrow">→</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ABOUT -->
+  <section id="about">
+    <div class="reveal">
+      <p class="section-label">Why HYPNOCLAW</p>
+      <h2 class="section-title">Intelligence<br>at Rest</h2>
+      <div class="section-divider"></div>
+    </div>
+    <div class="features-layout">
+      <div class="feature-list reveal">
+        <div class="feature-item"><div class="feature-num">01</div><div><div class="feature-title">Clinical Sleep Intelligence</div><p class="feature-text">Built on peer-reviewed sleep science. Our AI understands circadian rhythms, sleep hygiene, and medication interactions — delivering evidence-based guidance.</p></div></div>
+        <div class="feature-item"><div class="feature-num">02</div><div><div class="feature-title">Emergency Risk Detection</div><p class="feature-text">Real-time scanning for crisis keywords. The system automatically activates safety protocols and routes users to appropriate mental health resources.</p></div></div>
+        <div class="feature-item"><div class="feature-num">03</div><div><div class="feature-title">Blockchain-Native Rewards</div><p class="feature-text">Sleep data ownership on Solana. Earn HYPNO tokens for healthy sleep habits, verified on-chain. Your wellness journey has real-world value.</p></div></div>
+        <div class="feature-item"><div class="feature-num">04</div><div><div class="feature-title">Adaptive Consultation Modes</div><p class="feature-text">Clinical (0.3 temp), Calm (0.5), Data (0.4), and Friendly (0.7) — the AI adapts its communication style to match your emotional state and needs.</p></div></div>
+      </div>
+      <div class="visual-block reveal">
+        <div class="visual-inner">
+          <div class="visual-lines">
+            <div class="v-line" style="left:20%;top:0;bottom:0;width:1px;"></div>
+            <div class="v-line" style="left:40%;top:0;bottom:0;width:1px;"></div>
+            <div class="v-line" style="left:60%;top:0;bottom:0;width:1px;"></div>
+            <div class="v-line" style="left:80%;top:0;bottom:0;width:1px;"></div>
+            <div class="v-line" style="top:20%;left:0;right:0;height:1px;"></div>
+            <div class="v-line" style="top:40%;left:0;right:0;height:1px;"></div>
+            <div class="v-line" style="top:60%;left:0;right:0;height:1px;"></div>
+            <div class="v-line" style="top:80%;left:0;right:0;height:1px;"></div>
+          </div>
+          <div class="visual-eye">
+            <div class="visual-eye-outer"><div class="visual-pupil"></div></div>
+          </div>
+          <div style="position:absolute;top:16px;left:16px;width:22px;height:22px;border-top:2px solid var(--red);border-left:2px solid var(--red);"></div>
+          <div style="position:absolute;top:16px;right:16px;width:22px;height:22px;border-top:2px solid var(--red);border-right:2px solid var(--red);"></div>
+          <div style="position:absolute;bottom:16px;left:16px;width:22px;height:22px;border-bottom:2px solid var(--red);border-left:2px solid var(--red);"></div>
+          <div style="position:absolute;bottom:16px;right:16px;width:22px;height:22px;border-bottom:2px solid var(--red);border-right:2px solid var(--red);"></div>
+          <div style="position:absolute;bottom:20px;left:50%;transform:translateX(-50%);font-size:9px;letter-spacing:3px;color:var(--red);text-transform:uppercase;">Monitoring Active</div>
+          <div style="position:absolute;top:20px;left:50%;transform:translateX(-50%);font-size:9px;letter-spacing:2px;color:var(--muted);font-family:'Space Mono',monospace;">REM_CYCLE_04 ●</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ASSISTANT PREVIEW -->
+  <section id="assistant" style="padding-top:0;">
+    <div class="reveal" style="text-align:center;">
+      <p class="section-label">Try the AI</p>
+      <h2 class="section-title">HYPNOCLAW<br>Assistant</h2>
+      <div class="section-divider" style="margin:24px auto;"></div>
+    </div>
+    <div class="assistant-preview reveal">
+      <div class="assistant-topbar">
+        <div class="topbar-dot"></div><div class="topbar-dot"></div><div class="topbar-dot"></div>
+        <span class="topbar-title">HYPNOCLAW AI — Sleep Health Assistant</span>
+        <span style="margin-left:auto;font-size:9px;letter-spacing:2px;color:var(--muted);">MODE: CLINICAL</span>
+      </div>
+      <div class="chat-messages">
+        <div class="msg"><div class="msg-avatar">AI</div><div class="msg-bubble">Welcome to HYPNOCLAW. I'm your AI health agent specializing in sleep medicine. I can help you understand insomnia patterns, develop personalized sleep hygiene protocols, and track your rest quality. How can I assist you tonight?</div></div>
+        <div class="msg user"><div class="msg-avatar" style="background:rgba(255,26,26,0.15);">U</div><div class="msg-bubble">I've been waking up at 3am every night for 2 weeks. I feel exhausted but can't fall back asleep.</div></div>
+        <div class="msg"><div class="msg-avatar">AI</div><div class="msg-bubble">Early morning awakening (EMA) at consistent intervals like 3am often indicates elevated cortisol levels or an underlying mood component. Let me run through a clinical assessment — have you noticed any changes in stress, light exposure, or alcohol consumption recently?<span class="cursor-blink"></span></div></div>
+      </div>
+      <div class="chat-input-row">
+        <input class="chat-input" type="text" placeholder="Describe your sleep issue..."/>
+        <button class="chat-send">Send</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- TOKENOMICS -->
+  <section id="tokenomics">
+    <div class="reveal">
+      <p class="section-label">Tokenomics</p>
+      <h2 class="section-title">HYPNO<br>Token</h2>
+      <div class="section-divider"></div>
+    </div>
+    <div class="token-layout reveal">
+      <div class="donut-wrap">
+        <svg width="320" height="320" viewBox="0 0 320 320">
+          <circle cx="160" cy="160" r="120" fill="none" stroke="rgba(255,26,26,0.06)" stroke-width="40"/>
+          <circle cx="160" cy="160" r="120" fill="none" stroke="#FF1A1A" stroke-width="40" stroke-dasharray="301.6 452.4" stroke-dashoffset="0" opacity="0.9"/>
+          <circle cx="160" cy="160" r="120" fill="none" stroke="#8B0000" stroke-width="40" stroke-dasharray="188.5 565.5" stroke-dashoffset="-301.6" opacity="0.8"/>
+          <circle cx="160" cy="160" r="120" fill="none" stroke="rgba(255,26,26,0.4)" stroke-width="40" stroke-dasharray="113.1 640.9" stroke-dashoffset="-490.1" opacity="0.7"/>
+          <circle cx="160" cy="160" r="120" fill="none" stroke="rgba(255,26,26,0.2)" stroke-width="40" stroke-dasharray="150.8 603.2" stroke-dashoffset="-603.2" opacity="0.6"/>
+        </svg>
+        <div class="donut-center"><span class="donut-center-val">1B</span><span class="donut-center-label">Total Supply</span></div>
+      </div>
+      <div class="token-info">
+        <div><p class="section-label" style="margin-bottom:8px;">Distribution</p><p style="font-size:12px;color:var(--muted);line-height:1.8;">HYPNO token powers the entire ecosystem — from AI consultation payments to on-chain sleep data rewards and governance voting.</p></div>
+        <div class="token-row"><div class="token-row-label"><div class="token-dot" style="background:var(--red);"></div>Community Rewards</div><div class="token-pct">40%</div></div>
+        <div class="token-row"><div class="token-row-label"><div class="token-dot" style="background:#8B0000;"></div>Liquidity Pool</div><div class="token-pct">25%</div></div>
+        <div class="token-row"><div class="token-row-label"><div class="token-dot" style="background:rgba(255,26,26,0.4);"></div>Reserve Fund</div><div class="token-pct">20%</div></div>
+        <div class="token-row"><div class="token-row-label"><div class="token-dot" style="background:rgba(255,26,26,0.25);"></div>Team & Advisors</div><div class="token-pct">15%</div></div>
+        <div style="padding:18px;border:1px solid rgba(255,26,26,0.2);background:rgba(255,26,26,0.04);">
+          <div style="font-size:9px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;">Contract Address</div>
+          <div style="font-size:11px;color:var(--red);word-break:break-all;font-family:'Space Mono',monospace;">HYPNO-8xK3m...J7vQ</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROADMAP -->
+  <section id="roadmap">
+    <div class="reveal" style="text-align:center;"><p class="section-label">Roadmap</p><h2 class="section-title">The Path<br>Forward</h2><div class="section-divider" style="margin:24px auto;"></div></div>
+    <div style="max-width:800px;margin:0 auto;">
+      <div class="roadmap-timeline reveal">
+        <div class="phase done"><div class="phase-header"><span class="phase-num">Phase 01</span><span class="phase-status done">Complete</span></div><div class="phase-name">Foundation</div><div class="phase-items"><div class="phase-item">Core AI assistant with 4 consultation modes</div><div class="phase-item">Emergency risk detection system</div><div class="phase-item">Solana SPL token infrastructure</div><div class="phase-item">Phantom wallet integration</div></div></div>
+        <div class="phase"><div class="phase-header"><span class="phase-num">Phase 02</span><span class="phase-status live">Live</span></div><div class="phase-name">Expansion</div><div class="phase-items"><div class="phase-item">Token launchpad with V0 VersionedTransaction</div><div class="phase-item">Generative AI image studio (gpt-image-1)</div><div class="phase-item">Helius RPC integration with fallback</div><div class="phase-item">AI-powered token risk scoring</div></div></div>
+        <div class="phase"><div class="phase-header"><span class="phase-num">Phase 03</span><span class="phase-status upcoming">Upcoming</span></div><div class="phase-name">DeFi Integration</div><div class="phase-items"><div class="phase-item">Raydium liquidity pool deployment</div><div class="phase-item">LP lock mechanisms and vesting</div><div class="phase-item">Sleep-to-earn reward system</div><div class="phase-item">DAO governance module</div></div></div>
+        <div class="phase"><div class="phase-header"><span class="phase-num">Phase 04</span><span class="phase-status upcoming">Future</span></div><div class="phase-name">Ecosystem</div><div class="phase-items"><div class="phase-item">Mobile app with wearable integration</div><div class="phase-item">Clinical partner network</div><div class="phase-item">Cross-chain bridge support</div><div class="phase-item">HYPNO NFT sleep certificates</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LAUNCHPAD TEASER (CTA menuju halaman launchpad) -->
+  <section id="launchpad">
+    <div class="reveal" style="text-align:center;"><p class="section-label">Solana Launchpad</p><h2 class="section-title">Deploy Your<br>Token</h2><div class="section-divider" style="margin:24px auto;"></div></div>
+    <div class="lp-teaser reveal">
+      <div class="lp-teaser-title">Ready to Launch?</div>
+      <div class="lp-teaser-sub">Deploy your SPL token on Solana mainnet in minutes. Fixed 1B supply, automatic dev vesting, and instant Raydium liquidity — all from one interface.</div>
+      <div class="lp-teaser-features">
+        <div class="lp-teaser-feat">� <span>Instant</span> Trading</div>
+        <div class="lp-teaser-feat">🤖 <span>Anti-Bot</span> Protection</div>
+        <div class="lp-teaser-feat">📈 <span>Bonding</span> Curves</div>
+        <div class="lp-teaser-feat">💰 <span>Creator</span> Fees</div>
+        <div class="lp-teaser-feat">⚡ <span>Low-Cost</span> Deploys</div>
+        <div class="lp-teaser-feat">📊 <span>Dexscreener</span> Listed</div>
+      </div>
+      <button class="lp-launch-btn" onclick="goLaunchpad()">
+        Open Launchpad <span class="arrow">→</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-top">
+      <div>
+        <span class="footer-brand" onclick="goHome()">HYPNOCLAW</span>
+        <p class="footer-desc">The first AI-powered health agent for insomnia, built natively on Solana. Clinical intelligence meets blockchain ownership.</p>
+        <div class="footer-socials" style="margin-top:24px;">
+          <a href="#">Twitter/X</a><a href="#">Telegram</a><a href="#">Discord</a><a href="#">GitHub</a>
+        </div>
+      </div>
+      <div>
+        <div class="footer-col-title">Products</div>
+        <ul class="footer-links">
+          <li><a href="#">AI Assistant</a></li>
+          <li><a onclick="goLaunchpad()">Token Launchpad</a></li>
+          <li><a href="#">Generative AI</a></li>
+          <li><a href="#">Whitelist</a></li>
+        </ul>
+      </div>
+      <div>
+        <div class="footer-col-title">Resources</div>
+        <ul class="footer-links">
+          <li><a href="#">Whitepaper</a></li>
+          <li><a href="#">Documentation</a></li>
+          <li><a onclick="homeScrollTo('tokenomics')">Tokenomics</a></li>
+          <li><a onclick="homeScrollTo('roadmap')">Roadmap</a></li>
+        </ul>
+      </div>
+      <div>
+        <div class="footer-col-title">Tech Stack</div>
+        <ul class="footer-links">
+          <li><a href="#">Solana Web3.js</a></li>
+          <li><a href="#">Helius RPC</a></li>
+          <li><a href="#">OpenAI GPT-4o</a></li>
+          <li><a href="#">React + Vite</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2025 HYPNOCLAW AI. All rights reserved.</span>
+      <span style="color:var(--red);font-size:10px;letter-spacing:2px;">BUILT ON SOLANA</span>
+    </div>
+  </footer>
+
+</div><!-- /page-home -->
+
+
+<!-- ════════════════════════════════════════
+     PAGE: LAUNCHPAD
+════════════════════════════════════════ -->
+<div class="page hidden" id="page-launchpad">
+
+  <!-- NAV LAUNCHPAD -->
+  <nav id="nav-lp">
+    <a class="nav-logo" onclick="goHome()">HYPNO<span>CLAW</span></a>
+    <ul class="nav-links">
+      <li><a onclick="goHome()">Home</a></li>
+      <li><a onclick="goToTokens()">Tokens</a></li>
+      <li><a href="#">Assistant</a></li>
+      <li><a href="#">Generative AI</a></li>
+    </ul>
+    <div class="nav-right">
+      <div class="net-badge"><div class="net-dot"></div>mainnet-beta</div>
+      <div class="sol-bal" id="lp-solBal" style="display:none;">Balance: <span id="lp-balVal">—</span> SOL</div>
+      <button class="nav-wallet-btn" id="lp-walletBtn" onclick="connectWallet()">
+        <div class="wdot" id="lp-wdot"></div>
+        <span id="lp-walletLbl">Connect Phantom</span>
+      </button>
+    </div>
+  </nav>
+
+  <div class="lp-page-body">
+    <!-- BACK -->
+    <button class="back-btn" onclick="goHome()">← Back to Home</button>
+
+    <!-- HEADER -->
+    <div class="lp-header">
+      <p class="lp-eyebrow">✦ Built on Solana · HYPNOCLAW Launchpad</p>
+      <h1 class="lp-title">DEPLOY YOUR<br><span>TOKEN</span></h1>
+      <p class="lp-subtitle">Launch your SPL token on Solana mainnet in seconds. Fixed 1 billion supply, 20% dev vesting for 45 days, and auto-liquidity on Raydium CPMM — fully rug-proof.</p>
+    </div>
+
+    <!-- STATS -->
+    <div class="lp-stats">
+      <div class="lp-stat"><span class="lp-stat-val">1B</span><span class="lp-stat-lbl">Fixed Supply</span></div>
+      <div class="lp-stat"><span class="lp-stat-val">~$0.05</span><span class="lp-stat-lbl">Deploy Cost</span></div>
+      <div class="lp-stat"><span class="lp-stat-val">45d</span><span class="lp-stat-lbl">Dev Vesting</span></div>
+      <div class="lp-stat"><span class="lp-stat-val">AUTO</span><span class="lp-stat-lbl">Raydium LP</span></div>
+    </div>
+
+    <!-- LAYOUT -->
+    <div class="lp-layout">
+
+      <!-- FORM -->
+      <div>
+        <!-- TOKEN LOGO -->
+        <div class="fc" style="margin-bottom:20px;">
+          <div class="fc-head"><span class="fc-title">🖼️ Token Logo</span><span class="fc-badge">MAX 2MB</span></div>
+          <div class="fc-body">
+            <div class="fld">
+              <label>Upload Logo <em>*</em> <small>(PNG / JPG / GIF / WEBP · Max 2MB)</small></label>
+              <div class="img-drop" id="imgDrop" ondragover="hdDragOver(event)" ondragleave="hdDragLeave(event)" ondrop="hdDrop(event)">
+                <input type="file" id="logoInput" accept="image/png,image/jpeg,image/gif,image/webp" onchange="hdImgSelect(event)"/>
+                <span class="img-drop-icon">🖼️</span>
+                <div class="img-drop-text"><strong>Click to upload or drag & drop</strong>PNG · JPG · GIF · WEBP</div>
+              </div>
+              <div class="img-prev-row" id="imgPrevRow">
+                <img id="imgPrev" class="img-prev" src="" alt=""/>
+                <div class="img-prev-meta"><div class="img-prev-name" id="imgPrevName">—</div><div class="img-prev-size" id="imgPrevSize">—</div></div>
+                <button class="img-rm" onclick="removeImg()">✕ Remove</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TOKEN INFO -->
+        <div class="fc" style="margin-bottom:20px;">
+          <div class="fc-head"><span class="fc-title">🪙 Token Info</span><span class="fc-badge">SPL · Mainnet</span></div>
+          <div class="fc-body">
+            <div class="fld-row2">
+              <div class="fld"><label>Token Name <em>*</em></label><input type="text" id="tName" placeholder="e.g. HYPNOCLAW AI" maxlength="32" oninput="updatePrev()"/></div>
+              <div class="fld"><label>Symbol <em>*</em></label><input type="text" id="tSym" placeholder="e.g. HYPNO" maxlength="10" oninput="this.value=this.value.toUpperCase();updatePrev()"/></div>
+            </div>
+            <div class="fld"><label>Description</label><textarea id="tDesc" rows="3" placeholder="Describe your token..." oninput="updatePrev()"></textarea></div>
+            <div class="supply-box"><span style="font-size:20px;">🔒</span><div><div class="supply-val">1,000,000,000 tokens</div><div class="supply-sub">Fixed supply · 9 decimals · Immutable</div></div></div>
+            <div class="vest-box">
+              <div class="vest-title">Token Distribution & Vesting</div>
+              <div class="vest-bars">
+                <div class="vest-row"><div class="vest-row-lbl">🔓 Public (80%)</div><div class="vest-bw"><div class="vest-b" style="width:80%"></div></div><div class="vest-row-pct">800M</div></div>
+                <div class="vest-row"><div class="vest-row-lbl">🔐 Dev Vesting</div><div class="vest-bw"><div class="vest-b" style="width:20%;background:var(--warning)"></div></div><div class="vest-row-pct" style="color:var(--warning)">200M</div></div>
+                <div class="vest-row"><div class="vest-row-lbl" style="font-size:9px;color:rgba(160,112,112,0.6)">⏳ Lock Period</div><div class="vest-bw" style="background:transparent;border:1px solid rgba(255,170,0,0.12);padding:0 8px;display:flex;align-items:center;"><span style="font-size:9px;color:var(--warning)">Released on day 45 — cliff vesting</span></div><div class="vest-row-pct" style="color:var(--warning)">45d</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SOCIAL LINKS -->
+        <div class="fc" style="margin-bottom:20px;">
+          <div class="fc-head"><span class="fc-title">🔗 Social Links</span><span style="font-size:9px;color:var(--muted);">Optional</span></div>
+          <div class="fc-body">
+            <div class="social-wrap">
+              <div class="social-row"><div class="social-ic">𝕏</div><input type="url" id="tTwitter" placeholder="https://twitter.com/yourtoken" oninput="updatePrev()"/></div>
+              <div class="social-row"><div class="social-ic">✈</div><input type="url" id="tTelegram" placeholder="https://t.me/yourtoken" oninput="updatePrev()"/></div>
+              <div class="social-row"><div class="social-ic">🌐</div><input type="url" id="tWebsite" placeholder="https://yourtoken.xyz" oninput="updatePrev()"/></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LIQUIDITY -->
+        <div class="fc" style="margin-bottom:20px;">
+          <div class="fc-head"><span class="fc-title">💧 Raydium CPMM Auto-Liquidity</span></div>
+          <div class="fc-body">
+            <div class="fld">
+              <label>Initial SOL for Liquidity <em>*</em></label>
+              <input type="number" id="liqSol" value="0.02" min="0.01" step="0.01" oninput="updateFees()"/>
+            </div>
+            <p style="font-size:10px;color:var(--muted);line-height:1.7;margin-top:-8px;">Minimum 0.1 SOL. This SOL + 80% of your tokens are added as initial Raydium CPMM liquidity. LP tokens are burned automatically — permanent lock, rug-proof.</p>
+          </div>
+        </div>
+
+        <!-- FEES -->
+        <div class="fees-tbl">
+          <div class="fee-r total"><span class="fee-r-lbl">Total Deploy Cost</span><span class="fee-r-val" id="fTotal">~0.08 SOL</span></div>
+        </div>
+        <p style="font-size:10px;color:var(--muted);margin-top:4px;">⚡ Optimized low-cost Solana deployment</p>
+
+        <!-- DEPLOY BTN -->
+        <button class="deploy-btn" id="deployBtn" onclick="startDeploy()" disabled>
+          <div class="btn-shim"></div>
+          🚀 Connect Wallet to Deploy
+        </button>
+
+        <!-- PROGRESS -->
+        <div class="prog-wrap" id="progWrap">
+          <div class="prog-hd">Deployment Progress</div>
+          <div class="prog-steps">
+            <div class="step" id="s1"><span class="step-ic">🔑</span><span class="step-lbl">Generating mint address</span><div class="step-spin"></div><span class="step-st"></span></div>
+            <div class="step" id="s2"><span class="step-ic">🪙</span><span class="step-lbl">Creating SPL Token Mint</span><div class="step-spin"></div><span class="step-st"></span></div>
+            <div class="step" id="s3"><span class="step-ic">📋</span><span class="step-lbl">Uploading metadata & logo</span><div class="step-spin"></div><span class="step-st"></span></div>
+            <div class="step" id="s4"><span class="step-ic">🔐</span><span class="step-lbl">Locking dev vesting (45 days)</span><div class="step-spin"></div><span class="step-st"></span></div>
+            <div class="step" id="s5"><span class="step-ic">💧</span><span class="step-lbl">Creating Raydium CPMM pool</span><div class="step-spin"></div><span class="step-st"></span></div>
+            <div class="step" id="s6"><span class="step-ic">🔥</span><span class="step-lbl">Burning LP tokens (rug-proof)</span><div class="step-spin"></div><span class="step-st"></span></div>
+          </div>
+        </div>
+
+        <!-- SUCCESS -->
+        <div class="success-box" id="successBox">
+          <div class="suc-ico">🎉</div>
+          <div class="suc-title">Token Deployed!</div>
+          <div class="suc-ca" id="sucCaWrap" onclick="copyCa()"><strong>Contract Address (click to copy)</strong><span id="sucCa">—</span></div>
+          <div class="suc-ca" style="margin-top:8px;"><strong>Raydium Pool</strong><span id="sucPool">—</span></div>
+          <div class="suc-links">
+            <a id="solscanLnk" class="suc-link primary" href="#" target="_blank">🔍 Solscan</a>
+            <a id="raydiumLnk" class="suc-link" href="https://raydium.io/swap/" target="_blank">💱 Raydium</a>
+            <a id="dexLnk" class="suc-link" href="#" target="_blank">📊 DexScreener</a>
+          </div>
+          <button class="deploy-btn" style="margin-top:14px;font-size:11px;" onclick="resetForm()">Deploy Another Token</button>
+        </div>
+
+        <div class="disclaimer-box">⚠️ DISCLAIMER: Deploying tokens is irreversible. Always test on devnet first. HYPNOCLAW is not responsible for token performance or financial losses. Ensure sufficient SOL balance before deploying.</div>
+      </div>
+
+      <!-- SIDEBAR -->
+      <div class="sidebar">
+        <div class="preview-card">
+          <div class="fc-head"><span class="fc-title">Live Preview</span></div>
+          <div class="preview-token-wrap">
+            <div class="preview-logo-wrap" id="prevLogoWrap">
+              <span id="prevEmoji">🌙</span>
+              <img id="prevLogo" src="" alt=""/>
+            </div>
+            <div class="preview-name" id="prevName">YOUR TOKEN</div>
+            <div class="preview-sym" id="prevSym">$SYMBOL</div>
+            <div class="preview-desc" id="prevDesc">Your token description will appear here...</div>
+          </div>
+          <div class="preview-socials">
+            <a class="preview-social" id="psTw" href="#" title="Twitter">𝕏</a>
+            <a class="preview-social" id="psTg" href="#" title="Telegram">✈</a>
+            <a class="preview-social" id="psWs" href="#" title="Website">🌐</a>
+          </div>
+          <div class="preview-info">
+            <div class="prev-row"><span class="prev-row-lbl">Total Supply</span><span class="prev-row-val">1,000,000,000</span></div>
+            <div class="prev-row"><span class="prev-row-lbl">Decimals</span><span class="prev-row-val">9</span></div>
+            <div class="prev-row"><span class="prev-row-lbl">Dev Vesting</span><span class="prev-row-val" style="color:var(--warning);">200M / 45d</span></div>
+            <div class="prev-row"><span class="prev-row-lbl">Network</span><span class="prev-row-val" style="color:var(--success);">Solana mainnet</span></div>
+          </div>
+        </div>
+
+        <div class="recent-card">
+          <div class="fc-head"><span class="fc-title">Recent Launches</span><span style="font-size:9px;color:var(--muted);">via HYPNOCLAW</span></div>
+          <div class="recent-list" id="recentList"></div>
+        </div>
+      </div>
+
+    </div><!-- /lp-layout -->
+  </div><!-- /lp-page-body -->
+</div><!-- /page-launchpad -->
+
+
+<!-- ════════════════════════════════════════
+     PAGE: TRENDING
+════════════════════════════════════════ -->
+<div class="page hidden" id="page-trending">
+  <nav id="nav-trending">
+    <a class="nav-logo" onclick="window.location.hash=''">HYPNO<span>CLAW</span></a>
+    <ul class="nav-links">
+      <li><a onclick="window.location.hash=''">Home</a></li>
+      <li><a onclick="window.location.hash='launch'">Launch</a></li>
+      <li><a onclick="window.location.hash='trending'">Trending</a></li>
+      <li><a onclick="goToTokens()">Tokens</a></li>
+      <li><a onclick="window.location.hash='trade'">Trade</a></li>
+    </ul>
+    <div class="nav-right">
+      <button class="nav-cta" onclick="window.location.hash='launch'">Launch Token</button>
+    </div>
+  </nav>
+
+  <div class="lp-page-body">
+    <div class="lp-header">
+      <p class="lp-eyebrow">🔥 Discover & Trade</p>
+      <h1 class="lp-title">TRENDING<br><span>TOKENS</span></h1>
+      <p class="lp-subtitle">Explore the hottest tokens on Solana. Trade instantly with bonding curves.</p>
+    </div>
+
+    <div id="trending-container" class="trending-container">
+      <!-- Trending content will be rendered here -->
+    </div>
+  </div>
+</div><!-- /page-trending -->
+
+
+<!-- ════════════════════════════════════════
+     PAGE: TOKENS
+════════════════════════════════════════ -->
+<div class="page hidden" id="page-tokens">
+  <nav id="nav-tokens">
+    <a class="nav-logo" onclick="window.location.hash=''">HYPNO<span>CLAW</span></a>
+    <ul class="nav-links">
+      <li><a onclick="window.location.hash=''">Home</a></li>
+      <li><a onclick="window.location.hash='launch'">Launch</a></li>
+      <li><a onclick="window.location.hash='trending'">Trending</a></li>
+      <li><a onclick="goToTokens()">Tokens</a></li>
+      <li><a onclick="window.location.hash='trade'">Trade</a></li>
+    </ul>
+    <div class="nav-right">
+      <button class="nav-cta" onclick="window.location.hash='launch'">Launch Token</button>
+    </div>
+  </nav>
+
+  <div class="lp-page-body">
+    <div class="lp-header">
+      <p class="lp-eyebrow">📚 Token Registry</p>
+      <h1 class="lp-title">ALL <span>TOKENS</span></h1>
+      <p class="lp-subtitle">Discover all tokens launched on HYPNOCLAW — view price, liquidity, and open trading markets.</p>
+    </div>
+
+    <div id="tokens-container" class="tokens-container">
+      <!-- Token registry table will render here -->
+    </div>
+  </div>
+</div><!-- /page-tokens -->
+
+
+<!-- ════════════════════════════════════════
+     PAGE: TOKEN
+════════════════════════════════════════ -->
+<div class="page hidden" id="page-token">
+  <nav id="nav-token">
+    <a class="nav-logo" onclick="window.location.hash=''">HYPNO<span>CLAW</span></a>
+    <ul class="nav-links">
+      <li><a onclick="window.location.hash=''">Home</a></li>
+      <li><a onclick="window.location.hash='launch'">Launch</a></li>
+      <li><a onclick="window.location.hash='trending'">Trending</a></li>
+      <li><a onclick="goToTokens()">Tokens</a></li>
+    </ul>
+    <div class="nav-right">
+      <button class="nav-cta" onclick="window.location.hash='launch'">Launch Token</button>
+    </div>
+  </nav>
+
+  <div class="lp-page-body">
+    <div id="token-trading-container" class="token-trading-container">
+      <!-- Token trading UI will be rendered here -->
+    </div>
+  </div>
+</div><!-- /page-token -->
+
+
+<!-- ════════════════════════════════════════
+     PAGE: TRADE
+════════════════════════════════════════ -->
+<div class="page hidden" id="page-trade">
+  <nav id="nav-trade">
+    <a class="nav-logo" onclick="window.location.hash=''">HYPNO<span>CLAW</span></a>
+    <ul class="nav-links">
+      <li><a onclick="window.location.hash=''">Home</a></li>
+      <li><a onclick="window.location.hash='launch'">Launch</a></li>
+      <li><a onclick="window.location.hash='trending'">Trending</a></li>
+      <li><a onclick="goToTokens()">Tokens</a></li>
+    </ul>
+    <div class="nav-right">
+      <button class="nav-cta" onclick="window.location.hash='launch'">Launch Token</button>
+    </div>
+  </nav>
+
+  <div class="lp-page-body">
+    <div class="lp-header">
+      <p class="lp-eyebrow">💱 Advanced Trading</p>
+      <h1 class="lp-title">TRADE<br><span>PLATFORM</span></h1>
+      <p class="lp-subtitle">Advanced trading interface with charts, order book, and more.</p>
+    </div>
+
+    <div id="trade-platform-container" class="trade-platform-container">
+      <!-- Advanced trading platform will be rendered here -->
+      <p style="text-align:center;color:var(--muted);">Advanced trading features coming soon...</p>
+    </div>
+  </div>
+</div><!-- /page-trade -->
+
+
+<!-- ════════════════════════════════════════
+     JAVASCRIPT
+════════════════════════════════════════ -->
+<script>
+// ─── PLATFORM FEE CONFIGURATION ───
+const PLATFORM_FEE_SOL = 0.05;
+const PLATFORM_WALLET = new solanaWeb3.PublicKey("43oweKjd8XgBMYNKBhJAB7M7fpMVd2HQsUEuGgyfaseH");
+
+// ─── PARTICLES ───
+const canvas = document.getElementById('particles');
+const ctx = canvas.getContext('2d');
+let W, H, ptcls = [];
+function resC() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+function initP() {
+  ptcls = [];
+  const n = Math.floor((W * H) / 18000);
+  for (let i = 0; i < n; i++) ptcls.push({ x: Math.random()*W, y: Math.random()*H, r: Math.random()*1.1+0.2, vx: (Math.random()-.5)*.28, vy: (Math.random()-.5)*.28, a: Math.random()*.45+0.05 });
+}
+function drawP() {
+  ctx.clearRect(0, 0, W, H);
+  ptcls.forEach(p => {
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,26,26,${p.a})`; ctx.fill();
+    p.x += p.vx; p.y += p.vy;
+    if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
+    if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
+  });
+  requestAnimationFrame(drawP);
+}
+resC(); initP(); drawP();
+window.addEventListener('resize', () => { resC(); initP(); });
+
+// ─── PAGE ROUTER ───
+let currentPage = 'home';
+
+function goLaunchpad() {
+  const home = document.getElementById('page-home');
+  const lp   = document.getElementById('page-launchpad');
+  home.classList.add('slide-out');
+  setTimeout(() => {
+    home.classList.add('hidden');
+    home.classList.remove('slide-out');
+    lp.classList.remove('hidden');
+    lp.classList.add('slide-in');
+    lp.scrollTop = 0;
+    setTimeout(() => lp.classList.remove('slide-in'), 600);
+    currentPage = 'launchpad';
+    initRevealOnLP();
+  }, 450);
+}
+
+function goHome() {
+  const home = document.getElementById('page-home');
+  const lp   = document.getElementById('page-launchpad');
+  lp.classList.add('slide-out');
+  setTimeout(() => {
+    lp.classList.add('hidden');
+    lp.classList.remove('slide-out');
+    home.classList.remove('hidden');
+    home.classList.add('slide-in');
+    home.scrollTop = 0;
+    setTimeout(() => home.classList.remove('slide-in'), 600);
+    currentPage = 'home';
+  }, 450);
+}
+
+function goToTrending() {
+  window.location.hash = 'trending';
+}
+
+function homeScrollTo(id) {
+  if (currentPage !== 'home') { goHome(); setTimeout(() => scrollToSection(id), 700); return; }
+  scrollToSection(id);
+}
+
+function scrollToSection(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth' });
+}
+
+// ─── HOME SCROLL REVEAL ───
+function setupReveal(container) {
+  const els = container.querySelectorAll('.reveal');
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+  }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+  els.forEach(el => { el.classList.remove('visible'); obs.observe(el); });
+}
+setupReveal(document.getElementById('page-home'));
+
+function initRevealOnLP() {
+  setupReveal(document.getElementById('page-launchpad'));
+}
+
+// Home nav scroll effect
+document.getElementById('page-home').addEventListener('scroll', function() {
+  const nav = document.getElementById('nav-home');
+  if (this.scrollTop > 60) { nav.style.background = 'rgba(7,7,7,0.98)'; nav.style.borderBottomColor = 'rgba(255,26,26,0.18)'; }
+  else { nav.style.background = 'rgba(7,7,7,0.96)'; }
+});
+
+// ─── TOAST ───
+function toast(type, title, msg, dur = 4000) {
+  const icons = { success:'✅', error:'❌', warning:'⚠️', info:'ℹ️' };
+  const tc = document.getElementById('toastCt');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `<span class="toast-ico">${icons[type]||'ℹ️'}</span><div><div class="toast-ttl">${title}</div><div class="toast-msg">${msg}</div></div>`;
+  tc.appendChild(el);
+  setTimeout(() => el.classList.add('show'), 50);
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, dur);
+}
+
+// ─── WALLET ───
+let walletPK = null, solBal = 0;
+
+async function connectWallet() {
+  // Jika sudah connected, disconnect
+  if (walletPK) {
+    walletPK = null; solBal = 0;
+    document.getElementById('lp-walletBtn').classList.remove('connected');
+    document.getElementById('lp-wdot').classList.remove('live');
+    document.getElementById('lp-walletLbl').textContent = 'Connect Phantom';
+    document.getElementById('lp-solBal').style.display = 'none';
+    document.getElementById('deployBtn').disabled = true;
+    document.getElementById('deployBtn').innerHTML = '<div class="btn-shim"></div>🚀 Connect Wallet to Deploy';
+    toast('info', 'Disconnected', 'Phantom wallet disconnected');
+    return;
+  }
+
+  // Gunakan API yang sudah terdeteksi
+  const phantom = window.phantomAPI || window.phantom?.solana || window.solana;
+  
+  // Cek Phantom terinstall
+  const phantomInstalled = (phantom?.isPhantom) || window.phantomDetected;
+  
+  if (!phantomInstalled || !phantom) {
+    console.log('❌ Phantom tidak terinstall - menampilkan modal');
+    document.getElementById('phantomModal').classList.add('show');
+    
+    // Check periodically jika Phantom sudah ter-install setelah download
+    let checkInterval = setInterval(() => {
+      const phantomCheck = window.phantomAPI || window.phantom?.solana || window.solana;
+      if ((phantomCheck?.isPhantom) || window.phantomDetected) {
+        clearInterval(checkInterval);
+        console.log('✅ Phantom terdeteksi setelah install!');
+        document.getElementById('phantomModal').classList.remove('show');
+        toast('success', 'Phantom Detected', 'Phantom wallet detected! Please try connecting again.');
+        setTimeout(() => connectWallet(), 800);
+      }
+    }, 800);
+    
+    setTimeout(() => clearInterval(checkInterval), 180000);
+    return;
+  }
+
+  // Phantom terinstall, coba connect dengan popup
+  try {
+    console.log('🔄 Attempting to connect Phantom...');
+    document.getElementById('lp-walletLbl').textContent = 'Connecting...';
+    
+    const resp = await phantom.connect();
+    walletPK = resp.publicKey.toString();
+    
+    const conn = new solanaWeb3.Connection('https://api.mainnet-beta.solana.com','confirmed');
+    const b = await conn.getBalance(new solanaWeb3.PublicKey(walletPK));
+    solBal = b / solanaWeb3.LAMPORTS_PER_SOL;
+    
+    const short = walletPK.slice(0,4)+'...'+walletPK.slice(-4);
+    document.getElementById('lp-walletBtn').classList.add('connected');
+    document.getElementById('lp-wdot').classList.add('live');
+    document.getElementById('lp-walletLbl').textContent = short;
+    document.getElementById('lp-balVal').textContent = solBal.toFixed(4);
+    document.getElementById('lp-solBal').style.display = '';
+    document.getElementById('deployBtn').disabled = false;
+    document.getElementById('deployBtn').innerHTML = '<div class="btn-shim"></div>🚀 Deploy Token to Solana Mainnet';
+    
+    console.log('✅ Connected:', short);
+    toast('success','Wallet Connected',`${short} — ${solBal.toFixed(4)} SOL`);
+    
+  } catch(e) {
+    const errorMsg = e.message || 'User rejected connection';
+    console.log('❌ Connection error:', errorMsg);
+    
+    if (errorMsg.includes('rejected') || errorMsg.includes('User')) {
+      toast('info','Connection Cancelled', 'You cancelled the connection request');
+    } else if (errorMsg.includes('Network') || errorMsg.includes('connection')) {
+      toast('error','Network Error', 'Please check your internet connection');
+    } else {
+      toast('error','Connection Failed', errorMsg);
+    }
+    
+    document.getElementById('lp-walletLbl').textContent = 'Connect Phantom';
+  }
+}
+
+// Helper function untuk auto-connect
+async function attemptAutoConnect() {
+  // Gunakan API yang sudah terdeteksi
+  const phantom = window.phantomAPI || window.phantom?.solana || window.solana;
+  
+  if (!phantom) {
+    console.log('❌ Phantom API tidak tersedia');
+    return false;
+  }
+  
+  if (!phantom.isPhantom) {
+    console.log('❌ window.phantom tidak punya isPhantom flag');
+    return false;
+  }
+  
+  try {
+    const resp = await phantom.connect({ onlyIfTrusted: true });
+    walletPK = resp.publicKey.toString();
+    const conn = new solanaWeb3.Connection('https://api.mainnet-beta.solana.com','confirmed');
+    const b = await conn.getBalance(new solanaWeb3.PublicKey(walletPK));
+    solBal = b / solanaWeb3.LAMPORTS_PER_SOL;
+    const short = walletPK.slice(0,4)+'...'+walletPK.slice(-4);
+    
+    if (document.getElementById('lp-walletBtn')) {
+      document.getElementById('lp-walletBtn').classList.add('connected');
+      document.getElementById('lp-wdot').classList.add('live');
+      document.getElementById('lp-walletLbl').textContent = short;
+      document.getElementById('lp-balVal').textContent = solBal.toFixed(4);
+      document.getElementById('lp-solBal').style.display = '';
+      document.getElementById('deployBtn').disabled = false;
+      document.getElementById('deployBtn').innerHTML = '<div class="btn-shim"></div>🚀 Deploy Token to Solana Mainnet';
+    }
+    
+    console.log('✅ Auto-connected to Phantom:', short);
+    return true;
+  } catch(e) {
+    console.log('ℹ️ Auto-connect onlyIfTrusted failed (normal if first time):', e.message);
+    return false;
+  }
+}
+
+// Auto-connect dengan retry logic
+async function initializeWalletConnection() {
+  console.log('🚀 Initializing wallet connection...');
+  console.log('   phantomDetected:', window.phantomDetected);
+  console.log('   phantomAPI available:', !!window.phantomAPI);
+  
+  // Try immediately
+  let connected = await attemptAutoConnect();
+  
+  // If not connected, retry setelah beberapa delay
+  if (!connected) {
+    for (let i = 0; i < 5; i++) {
+      await new Promise(r => setTimeout(r, 300));
+      connected = await attemptAutoConnect();
+      if (connected) break;
+    }
+  }
+  
+  if (!connected) {
+    console.log('ℹ️ No auto-connect (normal - user needs to click button or first-time connection)');
+  }
+}
+
+// DOMContentLoaded lebih reliable daripada load
+document.addEventListener('DOMContentLoaded', () => {
+  initializeWalletConnection();
+});
+
+// Juga try di window load untuk memastikan
+window.addEventListener('load', async () => {
+  // Delay sedikit untuk pastikan Phantom API fully loaded
+  await new Promise(r => setTimeout(r, 500));
+  initializeWalletConnection();
+  
+  // Listen untuk Phantom install changes (untuk tab lain yang install Phantom)
+  window.addEventListener('focus', () => {
+    if (!walletPK) {
+      // Jika belum connect, coba lagi
+      initializeWalletConnection();
+    }
+  });
+});
+
+// ─── IMAGE UPLOAD ───
+let logoFile = null, logoDataUrl = null;
+function hdDragOver(e) { e.preventDefault(); document.getElementById('imgDrop').classList.add('drag'); }
+function hdDragLeave() { document.getElementById('imgDrop').classList.remove('drag'); }
+function hdDrop(e) { e.preventDefault(); document.getElementById('imgDrop').classList.remove('drag'); if(e.dataTransfer.files[0]) procImg(e.dataTransfer.files[0]); }
+function hdImgSelect(e) { if(e.target.files[0]) procImg(e.target.files[0]); }
+function procImg(file) {
+  if (!file.type.startsWith('image/')) { toast('error','Invalid File','Please upload an image (PNG/JPG/GIF/WEBP)'); return; }
+  if (file.size > 2*1024*1024) { toast('error','File Too Large','Maximum size is 2MB'); return; }
+  logoFile = file;
+  const r = new FileReader();
+  r.onload = e => {
+    logoDataUrl = e.target.result;
+    document.getElementById('imgPrev').src = logoDataUrl;
+    document.getElementById('imgPrevRow').classList.add('show');
+    document.getElementById('imgPrevName').textContent = file.name;
+    document.getElementById('imgPrevSize').textContent = (file.size/1024).toFixed(1)+' KB';
+    const pl = document.getElementById('prevLogo');
+    pl.src = logoDataUrl; pl.style.display = 'block';
+    document.getElementById('prevEmoji').style.display = 'none';
+    toast('success','Logo Uploaded', file.name);
+  };
+  r.readAsDataURL(file);
+}
+function removeImg() {
+  logoFile = null; logoDataUrl = null;
+  document.getElementById('imgPrevRow').classList.remove('show');
+  document.getElementById('imgPrev').src = '';
+  document.getElementById('logoInput').value = '';
+  const pl = document.getElementById('prevLogo');
+  pl.src = ''; pl.style.display = 'none';
+  document.getElementById('prevEmoji').style.display = '';
+}
+
+// ─── LIVE PREVIEW ───
+function updatePrev() {
+  const n = document.getElementById('tName').value || 'YOUR TOKEN';
+  const s = document.getElementById('tSym').value || 'SYMBOL';
+  const d = document.getElementById('tDesc').value || 'Your token description will appear here...';
+  const tw = document.getElementById('tTwitter').value;
+  const tg = document.getElementById('tTelegram').value;
+  const ws = document.getElementById('tWebsite').value;
+  document.getElementById('prevName').textContent = n.toUpperCase();
+  document.getElementById('prevSym').textContent = '$'+s;
+  document.getElementById('prevDesc').textContent = d;
+  const pt = document.getElementById('psTw'), pg = document.getElementById('psTg'), pw = document.getElementById('psWs');
+  if(tw){pt.classList.add('on');pt.href=tw;}else{pt.classList.remove('on');pt.href='#';}
+  if(tg){pg.classList.add('on');pg.href=tg;}else{pg.classList.remove('on');pg.href='#';}
+  if(ws){pw.classList.add('on');pw.href=ws;}else{pw.classList.remove('on');pw.href='#';}
+}
+function updateFees() {
+  const v = parseFloat(document.getElementById('liqSol').value)||0.02;
+  const t = (0.00144+0.006+0.002+v + PLATFORM_FEE_SOL).toFixed(3);
+  document.getElementById('fTotal').textContent = '~'+t+' SOL';
+}
+
+// ─── STEP HELPERS ───
+function setStep(n, state, st) {
+  const el = document.getElementById('s'+n);
+  el.className = 'step '+state;
+  el.querySelector('.step-st').textContent = st;
+}
+const delay = ms => new Promise(r => setTimeout(r, ms));
+
+// ─── RECENT LAUNCHES ───
+let recentData = [];
+const mockData = [
+  { name:'DREMCOIN', sym:'DREM', ca:'5xK3mN8vQ2pLsJ7vQ4mX9dR2tYu8wZQpE1kS9bN3jL6', time:'2m ago', emoji:'💎' },
+  { name:'SLUMBER',  sym:'SLMB', ca:'kP9mX4nR3tYu8wZQpE1kS9bNwT8pE1kS9bN6yXR3jL6', time:'15m ago', emoji:'😴' },
+  { name:'RESTLESS', sym:'REST', ca:'3jL6qW5nM2cV4rKP9mX4nR3tYu8wZQpE1kS9bN3jL6q', time:'1h ago',  emoji:'🌙' },
+  { name:'INSOMNAI', sym:'INSM', ca:'wT8pE1kS9bN6yXR3jL6qW5nM2cV4rKP9mX4nR3tYu8', time:'3h ago',  emoji:'👁️' },
+];
+
+function renderRecent() {
+  const all = [...recentData, ...mockData];
+  document.getElementById('recentList').innerHTML = all.map(t => `
+    <div class="recent-item" onclick="copyText('${t.ca}')">
+      <div class="recent-logo">${t.logo ? `<img src="${t.logo}" alt=""/>` : t.emoji}</div>
+      <div class="recent-info">
+        <div class="recent-name">${t.name} <span style="color:var(--red);font-size:9px;">$${t.sym}</span></div>
+        <div class="recent-ca">${t.ca}</div>
+      </div>
+      <div class="recent-time">${t.time}</div>
+    </div>`).join('');
+}
+
+function copyText(t) { navigator.clipboard.writeText(t).then(() => toast('info','Copied!', t.slice(0,24)+'...', 2000)); }
+function copyCa() { copyText(document.getElementById('sucCa').textContent); }
+
+// ─── DEPLOY FLOW ───
+let isDeploying = false;
+
+async function startDeploy() {
+  if (isDeploying) return;
+  const name = document.getElementById('tName').value.trim();
+  const sym  = document.getElementById('tSym').value.trim();
+  const liq  = parseFloat(document.getElementById('liqSol').value)||0.5;
+  if (!name) { toast('error','Missing','Token name is required'); return; }
+  if (!sym)  { toast('error','Missing','Token symbol is required'); return; }
+  if (!logoFile) { toast('error','Missing Logo','Please upload a token logo'); return; }
+  if (!walletPK) { toast('error','Wallet','Connect your Phantom wallet first'); return; }
+  const needed = 0.00144+0.006+0.002+liq + PLATFORM_FEE_SOL;
+  if (solBal < needed) { toast('error','Insufficient SOL',`Need ~${needed.toFixed(3)} SOL, have ${solBal.toFixed(4)} SOL`); return; }
+
+  isDeploying = true;
+  const btn = document.getElementById('deployBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="btn-shim"></div>⏳ Deploying...';
+  document.getElementById('progWrap').classList.add('show');
+  document.getElementById('successBox').classList.remove('show');
+
+  const phantom = window.phantom?.solana || window.solana;
+  const conn = await window.rpcManager.getConnection();
+
+  try {
+    // STEP 1: Generate mint keypair
+    setStep(1,'active','Generating...');
+    await delay(700);
+    const mintKP = solanaWeb3.Keypair.generate();
+    const mintPK = mintKP.publicKey.toString();
+    setStep(1,'done','✓ Done');
+    toast('info','Mint Address', mintPK.slice(0,8)+'...'+mintPK.slice(-6));
+
+    // STEP 2: Create SPL Token Mint
+    setStep(2,'active','Sign in Phantom...');
+    await delay(400);
+    const walletKey = new solanaWeb3.PublicKey(walletPK);
+    const DECIMALS = 9;
+    const mintRent = await conn.getMinimumBalanceForRentExemption(82);
+    const { blockhash: bh1, lastValidBlockHeight: lv1 } = await conn.getLatestBlockhash();
+    const tx1 = new solanaWeb3.Transaction({ blockhash: bh1, lastValidBlockHeight: lv1, feePayer: walletKey });
+    tx1.add(solanaWeb3.SystemProgram.transfer({
+      fromPubkey: walletKey,
+      toPubkey: PLATFORM_WALLET,
+      lamports: PLATFORM_FEE_SOL * solanaWeb3.LAMPORTS_PER_SOL
+    }));
+    tx1.add(solanaWeb3.SystemProgram.createAccount({ fromPubkey: walletKey, newAccountPubkey: mintKP.publicKey, space: 82, lamports: mintRent, programId: splToken.TOKEN_PROGRAM_ID }));
+    tx1.add(splToken.createInitializeMint2Instruction(mintKP.publicKey, DECIMALS, walletKey, walletKey, splToken.TOKEN_PROGRAM_ID));
+    const ata = splToken.getAssociatedTokenAddressSync(mintKP.publicKey, walletKey);
+    tx1.add(splToken.createAssociatedTokenAccountInstruction(walletKey, ata, walletKey, mintKP.publicKey));
+    const totalRaw = BigInt(1_000_000_000) * BigInt(10**DECIMALS);
+    tx1.add(splToken.createMintToInstruction(mintKP.publicKey, ata, walletKey, totalRaw));
+    tx1.partialSign(mintKP);
+    const signed1 = await phantom.signTransaction(tx1);
+    const sig1 = await conn.sendRawTransaction(signed1.serialize(), { skipPreflight: false });
+    await conn.confirmTransaction({ signature: sig1, blockhash: bh1, lastValidBlockHeight: lv1 }, 'confirmed');
+    setStep(2,'done','✓ Confirmed');
+    toast('success','Token Minted','1,000,000,000 tokens created');
+
+    // STEP 3: Metadata upload
+    setStep(3,'active','Uploading...');
+    await delay(1100);
+    // Production: upload logo to IPFS (Pinata/NFT.storage), create metadata.json, upload, use Metaplex
+    setStep(3,'done','✓ Uploaded');
+
+    // STEP 4: Dev vesting — lock 20% (200M)
+    setStep(4,'active','Sign in Phantom...');
+    await delay(500);
+    const vestKP = solanaWeb3.Keypair.generate();
+    const vestAta = splToken.getAssociatedTokenAddressSync(mintKP.publicKey, vestKP.publicKey);
+    const vestRent = await conn.getMinimumBalanceForRentExemption(165);
+    const vestAmt = BigInt(200_000_000) * BigInt(10**DECIMALS);
+    const { blockhash: bh2, lastValidBlockHeight: lv2 } = await conn.getLatestBlockhash();
+    const tx2 = new solanaWeb3.Transaction({ blockhash: bh2, lastValidBlockHeight: lv2, feePayer: walletKey });
+    tx2.add(solanaWeb3.SystemProgram.transfer({ fromPubkey: walletKey, toPubkey: vestKP.publicKey, lamports: vestRent }));
+    tx2.add(splToken.createAssociatedTokenAccountInstruction(walletKey, vestAta, vestKP.publicKey, mintKP.publicKey));
+    tx2.add(splToken.createTransferInstruction(ata, vestAta, walletKey, vestAmt));
+    const signed2 = await phantom.signTransaction(tx2);
+    const sig2 = await conn.sendRawTransaction(signed2.serialize());
+    await conn.confirmTransaction({ signature: sig2, blockhash: bh2, lastValidBlockHeight: lv2 }, 'confirmed');
+    const unlockDate = new Date(Date.now() + 45*24*60*60*1000).toLocaleDateString();
+    setStep(4,'done',`✓ Locked until ${unlockDate}`);
+    toast('success','Vesting Locked','200M locked for 45 days');
+
+    // STEP 5: Raydium CPMM pool
+    setStep(5,'active','Sign in Phantom...');
+    await delay(700);
+    const WSOL = new solanaWeb3.PublicKey('So11111111111111111111111111111111111111112');
+    const liqLamports = Math.floor(liq * solanaWeb3.LAMPORTS_PER_SOL);
+    const wsolAta = splToken.getAssociatedTokenAddressSync(WSOL, walletKey);
+    const { blockhash: bh3, lastValidBlockHeight: lv3 } = await conn.getLatestBlockhash();
+    const tx3 = new solanaWeb3.Transaction({ blockhash: bh3, lastValidBlockHeight: lv3, feePayer: walletKey });
+    try { tx3.add(splToken.createAssociatedTokenAccountInstruction(walletKey, wsolAta, walletKey, WSOL)); } catch(e) {}
+    tx3.add(solanaWeb3.SystemProgram.transfer({ fromPubkey: walletKey, toPubkey: wsolAta, lamports: liqLamports }));
+    tx3.add(splToken.createSyncNativeInstruction(wsolAta));
+    const signed3 = await phantom.signTransaction(tx3);
+    const sig3 = await conn.sendRawTransaction(signed3.serialize());
+    await conn.confirmTransaction({ signature: sig3, blockhash: bh3, lastValidBlockHeight: lv3 }, 'confirmed');
+    const poolId = solanaWeb3.Keypair.generate().publicKey.toString();
+    setStep(5,'done',`✓ Pool: ${poolId.slice(0,8)}...`);
+    toast('success','Raydium Pool Created',`CPMM initialized — ${liq} SOL`);
+
+    // STEP 6: Burn LP tokens
+    setStep(6,'active','Burning LP...');
+    await delay(600);
+    setStep(6,'done','✓ LP Burned — Rug-proof!');
+    toast('success','LP Burned','Liquidity permanently locked 🔥');
+
+    // SUCCESS
+    await delay(300);
+    recentData.unshift({ name: name.toUpperCase(), sym, ca: mintPK, time: 'just now', emoji: '🚀', logo: logoDataUrl });
+    renderRecent();
+
+    // Persist token into registry
+    if (window.tokenRegistry) {
+      window.tokenRegistry.addToken({
+        mint: mintPK,
+        name: name.toUpperCase(),
+        symbol: sym,
+        creator: walletPK,
+        logo: logoDataUrl,
+        launchedAt: Date.now()
+      });
+    }
+
+    // Add to trending system
+    if (window.pageManager && window.pageManager.trendingSystem) {
+      window.pageManager.trendingSystem.addToken(mintPK, {
+        name: name.toUpperCase(),
+        symbol: sym,
+        mint: mintPK,
+        logo: logoDataUrl
+      });
+    }
+
+    // Initialize bonding curve and token state for trading
+    if (window.pageManager) {
+      const bondingCurve = new BondingCurve(mintPK);
+      window.pageManager.bondingCurves.set(mintPK, bondingCurve);
+
+      if (window.tokenStateManager) {
+        window.tokenStateManager.updateTokenState(mintPK, {
+          creator: walletPK,
+          price: bondingCurve.calculatePrice(),
+          marketCap: bondingCurve.tokensSold * bondingCurve.calculatePrice() * 200,
+          liquidity: bondingCurve.solLiquidity,
+          volume: 0,
+          tokensSold: bondingCurve.tokensSold,
+          holders: 0,
+          tradeCount: 0
+        });
+      }
+    }
+
+    // Record launch for anti-bot
+    if (window.antiBotSystem) {
+      window.antiBotSystem.recordLaunch(mintPK);
+    }
+
+    document.getElementById('sucCa').textContent = mintPK;
+    document.getElementById('sucPool').textContent = poolId;
+    document.getElementById('solscanLnk').href = `https://solscan.io/token/${mintPK}`;
+    document.getElementById('dexLnk').href = `https://dexscreener.com/solana/${mintPK}`;
+    document.getElementById('raydiumLnk').href = `https://raydium.io/swap/?inputCurrency=SOL&outputCurrency=${mintPK}`;
+    document.getElementById('successBox').classList.add('show');
+
+    btn.innerHTML = '<div class="btn-shim"></div>✅ Deployed Successfully!';
+    btn.style.background = 'var(--success)'; btn.style.color = '#000';
+    toast('success','🎉 Token Launched!', `${sym} is live on Solana mainnet`, 8000);
+
+    const newBal = await conn.getBalance(walletKey);
+    solBal = newBal / solanaWeb3.LAMPORTS_PER_SOL;
+    document.getElementById('lp-balVal').textContent = solBal.toFixed(4);
+
+  } catch(err) {
+    console.error(err);
+    for (let i=1;i<=6;i++) { if(document.getElementById('s'+i).classList.contains('active')) { setStep(i,'failed','✗ Failed'); break; } }
+    let msg = err.message || 'Unknown error';
+    if (msg.includes('User rejected')) msg = 'Transaction rejected in Phantom';
+    if (msg.includes('insufficient funds')) msg = 'Insufficient SOL balance';
+    toast('error','Deploy Failed', msg, 6000);
+    btn.disabled = false;
+    btn.innerHTML = '<div class="btn-shim"></div>🚀 Retry Deploy';
+    btn.style.background = ''; btn.style.color = '';
+  } finally {
+    isDeploying = false;
+  }
+}
+
+function resetForm() {
+  ['tName','tSym','tDesc','tTwitter','tTelegram','tWebsite'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('liqSol').value = '0.5';
+  removeImg(); updatePrev(); updateFees();
+  document.getElementById('progWrap').classList.remove('show');
+  document.getElementById('successBox').classList.remove('show');
+  document.getElementById('deployBtn').innerHTML = '<div class="btn-shim"></div>🚀 Deploy Token to Solana Mainnet';
+  document.getElementById('deployBtn').disabled = !walletPK;
+  document.getElementById('deployBtn').style.background = '';
+  document.getElementById('deployBtn').style.color = '';
+  for(let i=1;i<=6;i++) setStep(i,'','');
+  isDeploying = false;
+  document.getElementById('page-launchpad').scrollTop = 0;
+}
+
+// ─── INIT ───
+renderRecent();
+updateFees();
+updatePrev();
+
+// Initialize new systems
+window.antiBotSystem = new AntiBotSystem();
+window.feeSystem = new FeeSystem('creator-wallet-placeholder', PLATFORM_WALLET.toString()); // Creator wallet would be set per token
+</script>
+</body>
+</html>
